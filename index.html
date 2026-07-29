@@ -370,7 +370,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 
   <div class="box" id="tePropsBox" hidden style="position:sticky;top:54px;z-index:15">
-    <div class="hint" style="margin-bottom:10px">✅ 已支援<b>繁體中文</b>及其他中文／日文等非拉丁字元。含中文嘅文字方塊會以高解像圖片方式嵌入 PDF（英文／數字仍為向量文字）。</div>
+    <div class="hint" style="margin-bottom:10px">✅ 已支援<b>繁體中文</b>及其他中文／日文等非拉丁字元。匯出時，中文文字方塊會以<b>可選擇嘅真正文字</b>嵌入 PDF（需<b>聯網</b>載入開源中文字型，首次約數秒；之後會 cache 住）。若離線載唔到字型，會自動改用圖片方式。</div>
     <label class="field-label">內容</label>
     <textarea id="teContent" rows="2" style="min-height:auto" placeholder="Type text here..."></textarea>
     <div class="export-row">
@@ -550,6 +550,16 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
 
     <div class="note" id="trInfo"></div>
+
+    <div id="trPreviewWrap" style="margin-top:16px">
+      <label class="field-label">📐 實時預覽（<span style="color:#888">灰色</span> = 會被裁走；<span style="color:#C0392B">紅框</span> = 保留範圍）</label>
+      <div id="trPreview" style="position:relative;display:inline-block;background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);max-width:100%;line-height:0">
+        <canvas id="trPreviewCanvas" style="display:block;max-width:100%;height:auto"></canvas>
+        <div id="trOverlay" style="position:absolute;inset:0;pointer-events:none"></div>
+      </div>
+      <div style="font-size:.8rem;color:var(--ink-soft);margin-top:6px">💡 預覽以第 1 頁為準；改任何數值都會即時更新。底圖只渲染一次，之後純 CSS 遮罩更新，極輕量唔會卡。</div>
+    </div>
+
     <div class="export-row">
       <button class="btn big" id="trGo">✂️ 裁邊並下載 PDF</button>
     </div>
@@ -1072,6 +1082,48 @@ async function generatePDF(){
   }
 }
 
+/* 動態載入外部 script（CDN），唔會上載任何用戶檔案 */
+function loadScript(url){
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = url; s.async = true;
+    s.onload = () => res();
+    s.onerror = () => rej(new Error("載入 script 失敗：" + url));
+    document.head.appendChild(s);
+  });
+}
+
+/* 確保 fontkit + 開源中文字型已載入（cache），用嚟嵌入真正可選擇嘅中文文字 */
+let _cjkReady = null;  // Promise<{fontkit, fontBytes, ok}>
+const FONTKIT_URL = "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js";
+// pdf-lib embedFont 只支援 TTF / OTF（唔支援 woff2），所以全部用 OTF 來源
+const CKJ_FONT_URLS = [
+  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf",
+  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  "https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
+];
+function ensureCjkSupport(){
+  if (_cjkReady) return _cjkReady;
+  _cjkReady = (async () => {
+    // 1) fontkit（pdf-lib 嵌入自訂字型必需）
+    if (!window.fontkit){
+      try { await loadScript(FONTKIT_URL); } catch(e){ /* 容錯，繼續嘗試字型 */ }
+    }
+    const fontkitOk = !!window.fontkit;
+    // 2) 中文字型（依次序嘗試多個來源）
+    let fontBytes = null;
+    for (const u of CKJ_FONT_URLS){
+      try {
+        const resp = await fetch(u);
+        if (resp.ok){ fontBytes = new Uint8Array(await resp.arrayBuffer()); break; }
+      } catch(e){}
+    }
+    return { fontkit: window.fontkit, fontBytes, ok: fontkitOk && !!fontBytes };
+  })();
+  return _cjkReady;
+}
+
 /* =====================================================
    4) 文字編輯器
    註：pdf-lib 內建字型（Helvetica 等）只支援拉丁字母。
@@ -1250,16 +1302,33 @@ window.addEventListener("mousemove", e => {
 window.addEventListener("mouseup", () => { dragInfo = null; });
 
 // 輸出 PDF：用 pdf-lib 喺每頁印文字
-// 拉丁字元用向量文字；中文／非拉丁字元用高解像 PNG 圖片嵌入
+// 盡量用真正可選擇文字（drawText）；含中文時需聯網載入開源中文字型並子集化；
+// 若字型載唔到，先 fallback 去高解像 PNG 圖片方式。
 $("teExport").onclick = async () => {
   const st = $("teStatus");
   setStatus(st, "⏳ 輸出中…", "busy");
   try {
     const out = await PDFLib.PDFDocument.create();
-    const font = await out.embedFont(PDFLib.StandardFonts.Helvetica);
+    const stdFont = await out.embedFont(PDFLib.StandardFonts.Helvetica);
     const pages = await out.copyPages(TE.pdfLibDoc, TE.pages.map((_, i) => i));
+
+    // 是否有含非拉丁字元嘅文字方塊？如果有，嘗試載入中文字型
+    const hasAnyCJK = TE.annosByPage.some(arr => arr.some(a => /[^\x00-\x7F]/.test(a.text || "")));
+    let cjkFont = null, cjkLoaded = false;
+    if (hasAnyCJK){
+      setStatus(st, "⏳ 載入中文字型（首次需聯網，約數秒）…", "busy");
+      try {
+        const sup = await ensureCjkSupport();
+        if (sup.ok){
+          if (window.fontkit) out.registerFontkit(window.fontkit);
+          cjkFont = await out.embedFont(sup.fontBytes, { subset: true });  // 子集化：只嵌入用到嘅字
+        }
+      } catch(e){ console.warn("CJK 字型嵌入失敗，將改用圖片方式", e); }
+      cjkLoaded = !!cjkFont;
+    }
+
     const ANNO_FONT = "Helvetica,Arial,'Noto Sans HK','PingFang HK','Microsoft JhengHei',sans-serif";
-    const DPI = 3;  // 高解像渲染倍數
+    const DPI = 3;  // 高解像渲染倍數（圖片 fallback 用）
     for (let i = 0; i < pages.length; i++){
       const pg = pages[i];
       out.addPage(pg);
@@ -1268,20 +1337,21 @@ $("teExport").onclick = async () => {
         const py = height - a.y - a.size;  // PDF 座標由底起，DOM 由頂起
         const text = a.text || " ";
         const hasCJK = /[^\x00-\x7F]/.test(text);
-        if (!hasCJK){
-          // 純拉丁：向量文字
+        // 若有中文字型，所有文字（含中文）一律用真正向量文字 → 匯出後可 highlight 選擇
+        if (!hasCJK || cjkFont){
+          const useFont = hasCJK ? cjkFont : stdFont;
           if (a.cover){
-            const w = font.widthOfTextAtSize(text, a.size);
+            const w = useFont.widthOfTextAtSize(text, a.size);
             pg.drawRectangle({ x: a.x - 1, y: py - 1, width: w + 2, height: a.size * 1.25 + 2, color: PDFLib.rgb(1,1,1) });
           }
           pg.drawText(text, {
             x: a.x, y: py,
             size: a.size,
-            font,
+            font: useFont,
             color: hexToRgb(a.color)
           });
         } else {
-          // 含中文／非拉丁：以高解像 PNG 嵌入
+          // 含中文但冇中文字型：以高解像 PNG 嵌入（fallback）
           const cssFont = a.size + "px " + ANNO_FONT;
           // 先用臨時 context 量度文字尺寸
           const mctx = document.createElement("canvas").getContext("2d");
@@ -1318,7 +1388,13 @@ $("teExport").onclick = async () => {
     }
     const bytes = await out.save();
     downloadBlob(new Blob([bytes], { type: "application/pdf" }), "Edited.pdf");
-    setStatus(st, "✅ 搞掂！已下載 Edited.pdf", "ok");
+    if (hasAnyCJK && cjkLoaded){
+      setStatus(st, "✅ 搞掂！已下載 Edited.pdf（中文為可選擇嘅真正文字）", "ok");
+    } else if (hasAnyCJK){
+      setStatus(st, "⚠️ 已下載 Edited.pdf，但中文字型載入失敗，中文以圖片嵌入（請檢查網絡連線後重試）", "ok");
+    } else {
+      setStatus(st, "✅ 搞掂！已下載 Edited.pdf", "ok");
+    }
   } catch (err){
     console.error(err);
     setStatus(st, "❌ 輸出失敗：" + (err.message || err), "err");
@@ -2058,7 +2134,7 @@ $("anyGo").onclick = async () => {
 /* =====================================================
    8) 裁邊工具（Trim Margins）
 ===================================================== */
-const TR = { file: null, buffer: null, pageCount: 0, firstBox: null };
+const TR = { file: null, buffer: null, pageCount: 0, firstBox: null, previewW: 0, previewH: 0 };
 
 wireDropzone($("trDrop"), $("trFileInput"), async files => {
   const st = $("trLoadStatus");
@@ -2077,6 +2153,7 @@ wireDropzone($("trDrop"), $("trFileInput"), async files => {
       (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
       `<span class="pages">共 ${TR.pageCount} 頁</span></li>`;
     $("trSettings").hidden = false;
+    await renderTrimPreview();
     updateTrimInfo();
     setStatus(st, `✅ 已載入，共 ${TR.pageCount} 頁。`, "ok");
   } catch (err){
@@ -2111,9 +2188,55 @@ function trUnitFactor(unit){
   return 1;                                     // pt
 }
 
+/* 渲染裁邊預覽底圖（只喺載入 PDF 時做一次；之後改數值只更新 overlay） */
+async function renderTrimPreview(){
+  const wrap = $("trPreviewWrap");
+  const canvas = $("trPreviewCanvas");
+  const overlay = $("trOverlay");
+  wrap.style.display = TR.file ? "" : "none";
+  overlay.innerHTML = "";
+  TR.previewW = 0; TR.previewH = 0;
+  if (!TR.file) return;
+  try {
+    const pdfjsDoc = await pdfjsLib.getDocument({ data: TR.buffer.slice(0) }).promise;
+    const page = await pdfjsDoc.getPage(1);
+    const maxW = Math.min(420, $("panel-trim").clientWidth - 60);
+    const raw = TR.firstBox;
+    const scale = Math.min(1, maxW / raw.width);
+    const vp = page.getViewport({ scale });
+    canvas.width = Math.floor(vp.width);
+    canvas.height = Math.floor(vp.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    TR.previewW = canvas.width;
+    TR.previewH = canvas.height;
+    pdfjsDoc.destroy();
+  } catch(e){ console.warn("裁邊預覽渲染失敗", e); }
+}
+
+/* 根據當前輸入值，更新灰色遮罩（純 DOM，極快，唔會卡） */
+function updateTrimPreview(){
+  const overlay = $("trOverlay");
+  if (!TR.file || !TR.firstBox || !TR.previewW){ overlay.innerHTML = ""; return; }
+  const f = trUnitFactor($("trUnit").value);
+  const top = (parseFloat($("trTop").value) || 0) * f;
+  const bottom = (parseFloat($("trBottom").value) || 0) * f;
+  const left = (parseFloat($("trLeft").value) || 0) * f;
+  const right = (parseFloat($("trRight").value) || 0) * f;
+  const sx = TR.previewW / TR.firstBox.width;
+  const sy = TR.previewH / TR.firstBox.height;
+  const t = Math.max(0, top * sy), b = Math.max(0, bottom * sy);
+  const l = Math.max(0, left * sx), r = Math.max(0, right * sx);
+  overlay.innerHTML =
+    `<div style="position:absolute;top:0;left:0;right:0;height:${t}px;background:rgba(120,120,120,.62)"></div>` +
+    `<div style="position:absolute;bottom:0;left:0;right:0;height:${b}px;background:rgba(120,120,120,.62)"></div>` +
+    `<div style="position:absolute;top:0;bottom:0;left:0;width:${l}px;background:rgba(120,120,120,.62)"></div>` +
+    `<div style="position:absolute;top:0;bottom:0;right:0;width:${r}px;background:rgba(120,120,120,.62)"></div>` +
+    `<div style="position:absolute;left:${l}px;top:${t}px;right:${r}px;bottom:${b}px;border:2px solid #C0392B;box-shadow:0 0 0 1px rgba(255,255,255,.5)"></div>`;
+}
+
 function updateTrimInfo(){
   const info = $("trInfo");
-  if (!TR.file || !TR.firstBox){ info.textContent = ""; return; }
+  if (!TR.file || !TR.firstBox){ info.textContent = ""; updateTrimPreview(); return; }
   const f = trUnitFactor($("trUnit").value);
   const top = (parseFloat($("trTop").value) || 0) * f;
   const bottom = (parseFloat($("trBottom").value) || 0) * f;
@@ -2126,6 +2249,7 @@ function updateTrimInfo(){
   const scope = activeBtn ? activeBtn.dataset.scope : "all";
   const extra = scope === "pages" ? "，僅裁切指定頁面" : `，套用至全部 ${TR.pageCount} 頁`;
   info.innerHTML = `📐 第 1 頁原始：<b>${w.toFixed(0)}×${h.toFixed(0)} pt</b>　裁切後：<b>${nw.toFixed(0)}×${nh.toFixed(0)} pt</b>${extra}`;
+  updateTrimPreview();  // 同步更新預覽遮罩（即時預覽）
 }
 
 $("trGo").onclick = async () => {
