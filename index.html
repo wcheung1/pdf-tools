@@ -370,7 +370,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 
   <div class="box" id="tePropsBox" hidden style="position:sticky;top:54px;z-index:15">
-    <div class="hint" style="margin-bottom:10px">✅ 已支援<b>繁體中文</b>及其他中文／日文等非拉丁字元。匯出時，中文文字方塊會以<b>可選擇嘅真正文字</b>嵌入 PDF（需<b>聯網</b>載入開源中文字型，首次約數秒；之後會 cache 住）。若離線載唔到字型，會自動改用圖片方式。</div>
+    <div class="hint" style="margin-bottom:10px">✅ 已支援<b>繁體中文</b>及其他中文／日文等非拉丁字元。匯出時，中文文字方塊會以<b>可選擇嘅真正文字</b>嵌入 PDF。字型（Noto Sans TC，隨 repo 附帶喺 <code>fonts/</code> 資料夾）會自動載入；若本地缺失會 fallback 去 CDN。</div>
     <label class="field-label">內容</label>
     <textarea id="teContent" rows="2" style="min-height:auto" placeholder="Type text here..."></textarea>
     <div class="export-row">
@@ -552,12 +552,17 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="note" id="trInfo"></div>
 
     <div id="trPreviewWrap" style="margin-top:16px">
-      <label class="field-label">📐 實時預覽（<span style="color:#888">灰色</span> = 會被裁走；<span style="color:#C0392B">紅框</span> = 保留範圍）</label>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <label class="field-label" style="margin:0">📐 實時預覽（<span style="color:#888">灰色</span> = 會被裁走；<span style="color:#C0392B">紅框</span> = 保留範圍）</label>
+        <label style="font-size:.86rem;color:var(--ink-soft);display:inline-flex;align-items:center;gap:4px">預覽頁面
+          <select id="trPreviewPage" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:.86rem;background:#FCFDFB"></select>
+        </label>
+      </div>
       <div id="trPreview" style="position:relative;display:inline-block;background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);max-width:100%;line-height:0">
         <canvas id="trPreviewCanvas" style="display:block;max-width:100%;height:auto"></canvas>
         <div id="trOverlay" style="position:absolute;inset:0;pointer-events:none"></div>
       </div>
-      <div style="font-size:.8rem;color:var(--ink-soft);margin-top:6px">💡 預覽以第 1 頁為準；改任何數值都會即時更新。底圖只渲染一次，之後純 CSS 遮罩更新，極輕量唔會卡。</div>
+      <div style="font-size:.8rem;color:var(--ink-soft);margin-top:6px">💡 揀要預覽邊一頁，然後改任何裁切數值都會即時更新。底圖淨係喺換頁時重新渲染一次，之後純 CSS 遮罩更新，極輕量唔會卡。</div>
     </div>
 
     <div class="export-row">
@@ -1094,32 +1099,57 @@ function loadScript(url){
 }
 
 /* 確保 fontkit + 開源中文字型已載入（cache），用嚟嵌入真正可選擇嘅中文文字 */
-let _cjkReady = null;  // Promise<{fontkit, fontBytes, ok}>
+let _cjkReady = null;  // Promise<{fontkit, fontBytes, ok, reason}>
 const FONTKIT_URL = "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js";
 // pdf-lib embedFont 只支援 TTF / OTF（唔支援 woff2），所以全部用 OTF 來源
+// 🔑 優先順序：① 本地 fonts/ 資料夾（隨 repo 一起上載 GitHub，最穩定、無 CORS 問題）
+//             ② CDN fallback（離線 / 本地檔案缺失時用）
 const CKJ_FONT_URLS = [
-  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf",
-  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
-  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
-  "https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
+  "fonts/NotoSansTC-Regular.otf",                                   // ① 本地細版（約 5MB，隨 repo upload）
+  "fonts/NotoSansCJKtc-Regular.otf",                                 // ① 本地完整版（若有）
+  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/TC/NotoSansTC-Regular.otf",  // ② CDN 細版
+  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"  // ② CDN 完整版
 ];
 function ensureCjkSupport(){
   if (_cjkReady) return _cjkReady;
   _cjkReady = (async () => {
     // 1) fontkit（pdf-lib 嵌入自訂字型必需）
     if (!window.fontkit){
-      try { await loadScript(FONTKIT_URL); } catch(e){ /* 容錯，繼續嘗試字型 */ }
+      try {
+        await loadScript(FONTKIT_URL);
+        console.log("[CJK] fontkit 已載入");
+      } catch(e){
+        console.warn("[CJK] fontkit 載入失敗", e);
+      }
     }
     const fontkitOk = !!window.fontkit;
+    if (!fontkitOk){
+      return { fontkit: null, fontBytes: null, ok: false, reason: "fontkit 載入失敗（可能被 CORS 或網絡阻擋）" };
+    }
     // 2) 中文字型（依次序嘗試多個來源）
     let fontBytes = null;
+    let usedUrl = null;
     for (const u of CKJ_FONT_URLS){
       try {
+        console.log("[CJK] 嘗試載入字型:", u);
         const resp = await fetch(u);
-        if (resp.ok){ fontBytes = new Uint8Array(await resp.arrayBuffer()); break; }
-      } catch(e){}
+        if (resp.ok){
+          const ab = await resp.arrayBuffer();
+          fontBytes = new Uint8Array(ab);
+          usedUrl = u;
+          console.log("[CJK] 字型載入成功:", u, `(${(fontBytes.length/1024/1024).toFixed(1)} MB)`);
+          break;
+        } else {
+          console.warn("[CJK] HTTP", resp.status, u);
+        }
+      } catch(e){
+        console.warn("[CJK] fetch 失敗:", u, e.message);
+      }
     }
-    return { fontkit: window.fontkit, fontBytes, ok: fontkitOk && !!fontBytes };
+    if (!fontBytes){
+      return { fontkit: window.fontkit, fontBytes: null, ok: false, reason: "所有字型來源都載入失敗（請檢查網絡連線；file:// 協議可能被 CORS 阻擋，建議用 http:// 伺服器開啟）" };
+    }
+    return { fontkit: window.fontkit, fontBytes, ok: true, reason: "ok", url: usedUrl };
   })();
   return _cjkReady;
 }
@@ -1319,11 +1349,20 @@ $("teExport").onclick = async () => {
       setStatus(st, "⏳ 載入中文字型（首次需聯網，約數秒）…", "busy");
       try {
         const sup = await ensureCjkSupport();
-        if (sup.ok){
-          if (window.fontkit) out.registerFontkit(window.fontkit);
-          cjkFont = await out.embedFont(sup.fontBytes, { subset: true });  // 子集化：只嵌入用到嘅字
+        console.log("[CJK] ensureCjkSupport 結果:", { ok: sup.ok, reason: sup.reason, hasFontBytes: !!sup.fontBytes });
+        if (sup.ok && window.fontkit && sup.fontBytes){
+          out.registerFontkit(window.fontkit);
+          // ⚠️ 重要：唔用子集化（subset:true）。
+          // 原因：fontkit 對 Noto Sans CJK（CFF/OTF outline）嘅子集化有已知 bug，
+          // 可能「靜默成功」但產生損壞字型 → drawText 寫入後文字喺 PDF 消失。
+          // 完整嵌入（約 16MB）保證文字顯示到且可選擇。
+          const fontCopy = sup.fontBytes.slice(0);  // 複製，避免 ArrayBuffer 被 transfer
+          cjkFont = await out.embedFont(fontCopy);
+          console.log("[CJK] 字型完整嵌入成功");
+        } else if (!sup.ok){
+          console.warn("[CJK] 字型載入失敗，原因:", sup.reason);
         }
-      } catch(e){ console.warn("CJK 字型嵌入失敗，將改用圖片方式", e); }
+      } catch(e){ console.warn("[CJK] 字型嵌入失敗，將改用圖片方式", e); }
       cjkLoaded = !!cjkFont;
     }
 
@@ -2134,7 +2173,7 @@ $("anyGo").onclick = async () => {
 /* =====================================================
    8) 裁邊工具（Trim Margins）
 ===================================================== */
-const TR = { file: null, buffer: null, pageCount: 0, firstBox: null, previewW: 0, previewH: 0 };
+const TR = { file: null, buffer: null, pageCount: 0, firstBox: null, previewW: 0, previewH: 0, previewPage: 1, pdfjsDoc: null };
 
 wireDropzone($("trDrop"), $("trFileInput"), async files => {
   const st = $("trLoadStatus");
@@ -2153,6 +2192,15 @@ wireDropzone($("trDrop"), $("trFileInput"), async files => {
       (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
       `<span class="pages">共 ${TR.pageCount} 頁</span></li>`;
     $("trSettings").hidden = false;
+    // 填充預覽頁面 dropdown
+    const sel = $("trPreviewPage");
+    sel.innerHTML = "";
+    for (let i = 1; i <= TR.pageCount; i++){
+      const opt = document.createElement("option");
+      opt.value = i; opt.textContent = `第 ${i} 頁`;
+      sel.appendChild(opt);
+    }
+    TR.previewPage = 1;
     await renderTrimPreview();
     updateTrimInfo();
     setStatus(st, `✅ 已載入，共 ${TR.pageCount} 頁。`, "ok");
@@ -2188,7 +2236,14 @@ function trUnitFactor(unit){
   return 1;                                     // pt
 }
 
-/* 渲染裁邊預覽底圖（只喺載入 PDF 時做一次；之後改數值只更新 overlay） */
+/* 預覽頁面 dropdown：切換時重新渲染底圖 */
+$("trPreviewPage").addEventListener("change", async () => {
+  TR.previewPage = parseInt($("trPreviewPage").value) || 1;
+  await renderTrimPreview();
+  updateTrimPreview();
+});
+
+/* 渲染裁邊預覽底圖（換頁時先載入第幾頁；之後改數值只更新 overlay） */
 async function renderTrimPreview(){
   const wrap = $("trPreviewWrap");
   const canvas = $("trPreviewCanvas");
@@ -2198,18 +2253,25 @@ async function renderTrimPreview(){
   TR.previewW = 0; TR.previewH = 0;
   if (!TR.file) return;
   try {
-    const pdfjsDoc = await pdfjsLib.getDocument({ data: TR.buffer.slice(0) }).promise;
-    const page = await pdfjsDoc.getPage(1);
+    // 重用已開啟嘅 pdfjsDoc（避免每次重新 parse）；冇就開一個
+    if (!TR.pdfjsDoc) TR.pdfjsDoc = await pdfjsLib.getDocument({ data: TR.buffer.slice(0) }).promise;
+    const pageNum = Math.min(Math.max(1, TR.previewPage), TR.pdfjsDoc.numPages);
+    const page = await TR.pdfjsDoc.getPage(pageNum);
     const maxW = Math.min(420, $("panel-trim").clientWidth - 60);
-    const raw = TR.firstBox;
-    const scale = Math.min(1, maxW / raw.width);
+    // 用該頁實際尺寸（唔一定同第 1 頁一樣）
+    const vp1 = page.getViewport({ scale: 1 });
+    const scale = Math.min(1, maxW / vp1.width);
     const vp = page.getViewport({ scale });
     canvas.width = Math.floor(vp.width);
     canvas.height = Math.floor(vp.height);
     await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
     TR.previewW = canvas.width;
     TR.previewH = canvas.height;
-    pdfjsDoc.destroy();
+    // 更新該頁嘅 box，令 overlay 比例正確（用 pdf-lib cache，唔好每次重新 parse）
+    if (!TR.pdfLibDoc) TR.pdfLibDoc = await loadPdfLib(TR.buffer);
+    const pgLib = TR.pdfLibDoc.getPage(pageNum - 1);
+    const mb = pgLib.getMediaBox();
+    TR.firstBox = { width: mb.width, height: mb.height };
   } catch(e){ console.warn("裁邊預覽渲染失敗", e); }
 }
 
