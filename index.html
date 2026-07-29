@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDF 工作枱 · 私隱優先嘅 PDF 工具</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/jszip.min.js"></script>
 <style>
 :root{
   --desk:#EDF1EC;
@@ -313,7 +313,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
    共用工具
 ===================================================== */
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  "lib/pdf.worker.min.js";
 
 const $ = id => document.getElementById(id);
 
