@@ -1388,7 +1388,12 @@ async function pdfToImages(buffer, opts){
 /* =====================================================
    DOCX 生成（OOXML，用 JSZip 打包）
 ===================================================== */
-function xmlEscape(s){ return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";"); }
+function xmlEscape(s) {
+  // 1. 先移除 XML 1.0 唔支援嘅控制字元 (保留 tab、換行等正常字元)
+  let cleanStr = String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+  // 2. 然後再 Escape 嗰啲特別符號
+  return cleanStr.replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
+}
 function paraXml(text, opts){
   opts = opts || {};
   const rpr = [];
