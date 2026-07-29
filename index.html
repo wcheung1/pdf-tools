@@ -185,6 +185,28 @@ input[type=text]{
 .anno:hover{border-color:rgba(30,111,92,.5)}
 .anno.selected{border-color:var(--accent)}
 .anno.cover{background:#fff}
+/* ---------- 新分頁元件 ---------- */
+.subview{display:none}
+.subview.active{display:block}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:12px;flex-wrap:wrap}
+.seg button{appearance:none;border:none;background:#fff;color:var(--ink-soft);padding:9px 16px;font-size:.9rem;font-weight:600;cursor:pointer;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button.active{background:var(--accent);color:#fff}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px}
+.img-item{position:relative;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;box-shadow:var(--shadow)}
+.img-item img{width:100%;height:110px;object-fit:contain;background:#F4F6F3;border-radius:5px;display:block}
+.img-item .nm{font-size:.74rem;color:var(--ink-soft);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-item .acts{position:absolute;top:4px;right:4px;display:flex;gap:2px}
+.img-item .acts button{width:22px;height:20px;font-size:.68rem;border:1px solid var(--line);background:#fff;border-radius:4px;cursor:pointer;color:var(--ink-soft);line-height:1}
+.img-item .acts button:hover{background:#F2F5F1;color:var(--ink)}
+.toggle-row{display:flex;align-items:center;gap:8px;margin:10px 0}
+.toggle-row label{font-size:.9rem;cursor:pointer}
+.opt-grid{display:flex;flex-wrap:wrap;gap:16px;margin:12px 0}
+.opt-grid label{font-size:.86rem;display:flex;flex-direction:column;gap:4px;font-weight:600}
+.opt-grid select,.opt-grid input[type=text]{padding:7px;border:1px solid var(--line);border-radius:7px;font-size:.9rem;background:#FCFDFB;min-width:120px;font-weight:400}
+.note{background:#F4FAF7;border-left:4px solid var(--accent);padding:10px 12px;border-radius:0 8px 8px 0;font-size:.84rem;color:var(--ink-soft);margin:10px 0}
+.note.warn{background:#FCF1E8;border-left-color:var(--warn)}
+.note b{color:var(--ink)}
 footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);font-size:.78rem;text-align:center}
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important}
@@ -206,6 +228,9 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-split" role="tab">✂️ 快速拆分</button>
       <button data-panel="panel-magic" role="tab">✨ 魔法合併器</button>
       <button data-panel="panel-textedit" role="tab">📝 文字編輯器</button>
+      <button data-panel="panel-image" role="tab">🖼️ 圖片 ⇄ PDF</button>
+      <button data-panel="panel-word" role="tab">📄 PDF ⇄ Word</button>
+      <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
     </nav>
   </div>
 </header>
@@ -363,9 +388,101 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="status" id="teStatus"></div>
 </section>
 
+<!-- ============ 5. 圖片 ⇄ PDF ============ -->
+<section id="panel-image" class="panel">
+  <div class="box">
+    <h2>圖片 ⇄ PDF</h2>
+    <p class="desc">將圖片（JPG / JPEG / PNG，亦支援 GIF / BMP / WEBP 等）組合成一個 PDF；或者將 PDF 每一頁匯出做圖片。</p>
+    <div class="seg" id="imgSeg">
+      <button class="active" data-view="i2p">🖼️ 圖片 → PDF</button>
+      <button data-view="p2i">📑 PDF → 圖片</button>
+    </div>
+
+    <div class="subview active" id="i2pView">
+      <div class="dropzone" id="i2pDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀檔案（可多選；支援 JPG / JPEG / PNG / GIF / BMP / WEBP）</div>
+      <input type="file" id="i2pFile" accept="image/*" multiple>
+      <div class="img-grid" id="i2pGrid"></div>
+      <div class="opt-grid">
+        <label>頁面大細
+          <select id="i2pSize"><option value="a4">A4（圖片縮放套入）</option><option value="fit">配合圖片原始尺寸</option></select>
+        </label>
+        <label>方向（A4 時適用）
+          <select id="i2pOrient"><option value="auto">自動</option><option value="portrait">直向</option><option value="landscape">橫向</option></select>
+        </label>
+      </div>
+      <button class="btn big" id="i2pGo">⬇️ 產生 PDF</button>
+      <div class="status" id="i2pStatus"></div>
+    </div>
+
+    <div class="subview" id="p2iView">
+      <div class="dropzone" id="p2iDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+      <input type="file" id="p2iFile" accept="application/pdf">
+      <ul class="file-list" id="p2iList"></ul>
+      <div class="opt-grid">
+        <label>輸出格式
+          <select id="p2iFmt"><option value="png">PNG（無損）</option><option value="jpg">JPG（檔案較細）</option></select>
+        </label>
+        <label>DPI（清晰度）
+          <select id="p2iDpi"><option value="96">96（屏幕）</option><option value="150" selected>150</option><option value="200">200</option><option value="300">300（印刷）</option></select>
+        </label>
+      </div>
+      <div class="note">多過一頁會自動打包做 ZIP 下載。</div>
+      <button class="btn big" id="p2iGo">⬇️ 匯出圖片</button>
+      <div class="status" id="p2iStatus"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6. PDF ⇄ Word（DOCX） ============ -->
+<section id="panel-word" class="panel">
+  <div class="box">
+    <h2>PDF ⇄ Word（DOCX）</h2>
+    <p class="desc">將 PDF 匯出做可編輯嘅 DOCX，或者將 DOCX 轉做 PDF。</p>
+    <div class="seg" id="wordSeg">
+      <button class="active" data-view="p2d">📄 PDF → Word</button>
+      <button data-view="d2p">📘 Word → PDF</button>
+    </div>
+
+    <div class="subview active" id="p2dView">
+      <div class="dropzone" id="p2dDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+      <input type="file" id="p2dFile" accept="application/pdf">
+      <ul class="file-list" id="p2dList"></ul>
+      <div class="toggle-row">
+        <input type="checkbox" id="p2dTables" checked>
+        <label for="p2dTables">嘗試偵測並保留表格（實驗性）</label>
+      </div>
+      <div class="note warn">⚠️ PDF 格式本身冇結構化資訊。純文字同簡單表格還原效果較好；複雜排版、多欄、圖文混排可能未能完美保留 —— 呢個係業界公認嘅技術限制。</div>
+      <button class="btn big" id="p2dGo">⬇️ 匯出 DOCX</button>
+      <div class="status" id="p2dStatus"></div>
+    </div>
+
+    <div class="subview" id="d2pView">
+      <div class="dropzone" id="d2pDrop" tabindex="0"><strong>拖放一個 DOCX 到呢度</strong><br>或者㩒一下揀檔案</div>
+      <input type="file" id="d2pFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+      <ul class="file-list" id="d2pList"></ul>
+      <button class="btn big" id="d2pGo">⬇️ 轉做 PDF</button>
+      <div class="status" id="d2pStatus"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. 萬物轉 PDF ============ -->
+<section id="panel-any" class="panel">
+  <div class="box">
+    <h2>萬物轉 PDF</h2>
+    <p class="desc">上載<b>任何</b>檔案，全部喺瀏覽器度轉做 PDF：PDF（原樣）、圖片、DOCX、HTML（會以<b>視覺版本</b>渲染，好似「列印成 PDF」咁）、純文字／程式碼等。</p>
+    <div class="dropzone" id="anyDrop" tabindex="0"><strong>拖放任何檔案到呢度</strong><br>或者㩒一下揀檔案（可多選）</div>
+    <input type="file" id="anyFile" multiple>
+    <ul class="file-list" id="anyList"></ul>
+    <div class="note">🔒 全部處理都喺你部機完成，檔案唔會上載。HTML 會以<b>視覺渲染</b>（唔係原始碼）輸出，等同瀏覽器「Print to PDF」嘅效果。</div>
+    <button class="btn big" id="anyGo">✨ 全部轉做 PDF</button>
+    <div class="status" id="anyStatus"></div>
+  </div>
+</section>
+
 </main>
 
-<footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js）· 可以直接放上 GitHub Pages / Netlify 托管</footer>
+<footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js + JSZip）· 可以直接放上 GitHub Pages / Netlify 托管</footer>
 
 <script>
 /* =====================================================
@@ -1095,6 +1212,593 @@ function hexToRgb(hex){
   const n = parseInt(m[1], 16);
   return PDFLib.rgb(((n >> 16) & 255)/255, ((n >> 8) & 255)/255, (n & 255)/255);
 }
+/* =====================================================
+   共用新工具
+===================================================== */
+function wireDropzoneAny(zoneEl, inputEl, onFiles){
+  zoneEl.addEventListener("click", () => inputEl.click());
+  zoneEl.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") inputEl.click(); });
+  zoneEl.addEventListener("dragover", e => { e.preventDefault(); zoneEl.classList.add("dragover"); });
+  zoneEl.addEventListener("dragleave", () => zoneEl.classList.remove("dragover"));
+  zoneEl.addEventListener("drop", e => {
+    e.preventDefault(); zoneEl.classList.remove("dragover");
+    if (e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]);
+  });
+  inputEl.addEventListener("change", () => {
+    if (inputEl.files.length) onFiles([...inputEl.files]);
+    inputEl.value = "";
+  });
+}
+function loadImage(src){ return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }); }
+function canvasToUint8(canvas, type, quality){
+  return new Promise((res, rej) => {
+    canvas.toBlob(b => {
+      if (!b){ rej(new Error("canvas.toBlob 失敗")); return; }
+      b.arrayBuffer().then(buf => res(new Uint8Array(buf)));
+    }, type || "image/png", quality == null ? 0.92 : quality);
+  });
+}
+function wireSeg(container, onChange){
+  const btns = [...container.querySelectorAll("button")];
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    onChange(b.dataset.view);
+  }));
+}
+function stripExt(name){ return name.replace(/\.[^.]+$/, ""); }
+
+/* =====================================================
+   HTML / 檔案 → Canvas（「好似 print as PDF」嘅視覺渲染）
+   使用 SVG <foreignObject> 交俾瀏覽器引擎真正 render
+===================================================== */
+async function renderHtmlToCanvas(html, widthPx){
+  widthPx = widthPx || 800;
+  // 1) 用一個隱藏 div 量度實際高度（等圖片載入）
+  const measure = document.createElement("div");
+  measure.style.cssText = `position:fixed;left:-100000px;top:0;width:${widthPx}px;visibility:hidden;font-family:'Noto Sans HK','PingFang HK','Microsoft JhengHei',sans-serif;`;
+  measure.innerHTML = html;
+  document.body.appendChild(measure);
+  const imgs = [...measure.querySelectorAll("img")];
+  await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; setTimeout(r, 1500); })));
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const height = Math.max(200, Math.ceil(measure.offsetHeight));
+  document.body.removeChild(measure);
+
+  // 2) 用 SVG foreignObject 包住 XHTML，再經 <img> 畫上 canvas
+  const xhtml = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${widthPx}px;font-family:'Noto Sans HK','PingFang HK','Microsoft JhengHei',sans-serif">${html}</div>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${height}"><foreignObject x="0" y="0" width="${widthPx}" height="${height}">${xhtml}</foreignObject></svg>`;
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    await new Promise((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = url; });
+    const canvas = document.createElement("canvas");
+    canvas.width = widthPx; canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    return canvas;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/* 將一塊（可能好高嘅）canvas 切成多個 A4 頁加入 PDF */
+async function addCanvasSlicesToPdf(canvas, pdfDoc){
+  const pageW = 595.28, pageH = 841.89;
+  const scale = canvas.width / pageW;
+  const sliceHPx = Math.round(pageH * scale);
+  const total = Math.max(1, Math.ceil(canvas.height / sliceHPx));
+  for (let s = 0; s < total; s++){
+    const sy = s * sliceHPx;
+    const sh = Math.min(sliceHPx, canvas.height - sy);
+    const sc = document.createElement("canvas");
+    sc.width = canvas.width; sc.height = sliceHPx;
+    const ctx = sc.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, sc.width, sc.height);
+    ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+    const bytes = await canvasToUint8(sc, "image/png");
+    const img = await pdfDoc.embedPng(bytes);
+    const page = pdfDoc.addPage([pageW, pageH]);
+    page.drawImage(img, { x: 0, y: 0, width: pageW, height: pageH });
+  }
+}
+
+async function htmlToPdfBlob(html){
+  const pdf = await PDFLib.PDFDocument.create();
+  const canvas = await renderHtmlToCanvas(html, 800);
+  await addCanvasSlicesToPdf(canvas, pdf);
+  const bytes = await pdf.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+/* =====================================================
+   圖片處理
+===================================================== */
+async function imageFileToEmbeddable(file, pdfDoc){
+  const name = file.name.toLowerCase();
+  const isPng = name.endsWith(".png") || file.type === "image/png";
+  const isJpg = name.endsWith(".jpg") || name.endsWith(".jpeg") || file.type === "image/jpeg";
+  if (isPng || isJpg){
+    const buf = await file.arrayBuffer();
+    return isPng ? pdfDoc.embedPng(buf) : pdfDoc.embedJpg(buf);
+  }
+  // 其他格式（GIF / BMP / WEBP / TIFF …）經 canvas 轉 PNG 再嵌入
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    const bytes = await canvasToUint8(canvas, "image/png");
+    return pdfDoc.embedPng(bytes);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function imagesToPdfBlob(files, opts){
+  opts = opts || {};
+  const pdf = await PDFLib.PDFDocument.create();
+  const pageSize = opts.pageSize || "a4";
+  const orient = opts.orient || "auto";
+  for (const f of files){
+    const emb = await imageFileToEmbeddable(f, pdf);
+    let pw, ph;
+    if (pageSize === "fit"){
+      pw = emb.width; ph = emb.height;
+    } else {
+      const A4W = 595.28, A4H = 841.89;
+      let w = A4W, h = A4H;
+      if (orient === "landscape"){ w = A4H; h = A4W; }
+      else if (orient === "auto"){ if (emb.width > emb.height){ w = A4H; h = A4W; } }
+      pw = w; ph = h;
+    }
+    const page = pdf.addPage([pw, ph]);
+    const margin = pageSize === "fit" ? 0 : 24;
+    const maxW = pw - 2 * margin, maxH = ph - 2 * margin;
+    const scale = Math.min(maxW / emb.width, maxH / emb.height);
+    const w = emb.width * scale, h = emb.height * scale;
+    page.drawImage(emb, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+  }
+  const bytes = await pdf.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+async function pdfToImages(buffer, opts){
+  opts = opts || {};
+  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  const scale = (opts.dpi || 150) / 72;
+  const fmt = opts.format || "png";
+  const type = fmt === "jpg" ? "image/jpeg" : "image/png";
+  const ext = fmt === "jpg" ? "jpg" : "png";
+  const files = [];
+  for (let i = 1; i <= pdfjsDoc.numPages; i++){
+    const page = await pdfjsDoc.getPage(i);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(vp.width));
+    canvas.height = Math.max(1, Math.floor(vp.height));
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    const blob = await new Promise(r => canvas.toBlob(r, type, 0.92));
+    files.push({ name: `page-${String(i).padStart(3, "0")}.${ext}`, blob });
+  }
+  pdfjsDoc.destroy();
+  return files;
+}
+
+/* =====================================================
+   DOCX 生成（OOXML，用 JSZip 打包）
+===================================================== */
+function xmlEscape(s){ return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";"); }
+function paraXml(text, opts){
+  opts = opts || {};
+  const rpr = [];
+  if (opts.bold) rpr.push("<w:b/>");
+  if (opts.italic) rpr.push("<w:i/>");
+  if (opts.size) rpr.push(`<w:sz w:val="${Math.round(opts.size * 2)}"/>`);
+  const rprXml = rpr.length ? `<w:rPr>${rpr.join("")}</w:rPr>` : "";
+  return `<w:p><w:r>${rprXml}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;
+}
+function tableXml(rows){
+  const cols = Math.max(...rows.map(r => r.length));
+  let grid = "<w:tblGrid>";
+  for (let i = 0; i < cols; i++) grid += '<w:gridCol w:w="2000"/>';
+  grid += "</w:tblGrid>";
+  const borders = '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="auto"/><w:left w:val="single" w:sz="4" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:color="auto"/><w:right w:val="single" w:sz="4" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:color="auto"/></w:tblBorders>';
+  let rowsXml = "";
+  for (const row of rows){
+    let cellsXml = "";
+    for (let i = 0; i < cols; i++){
+      cellsXml += `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t xml:space="preserve">${xmlEscape(row[i] || "")}</w:t></w:r></w:p></w:tc>`;
+    }
+    rowsXml += `<w:tr>${cellsXml}</w:tr>`;
+  }
+  return `<w:tbl><w:tblPr><w:tblW w:w="${cols * 2000}" w:type="dxa"/>${borders}</w:tblPr>${grid}${rowsXml}</w:tbl>`;
+}
+async function makeDocx(bodyXml){
+  const ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+  const docxml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + bodyXml + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>';
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", ct);
+  zip.folder("_rels").file(".rels", rels);
+  zip.folder("word").file("document.xml", docxml);
+  return zip.generateAsync({ type: "blob" });
+}
+
+/* 表格偵測：用欄位 x 座標聚類，搵出連續多行共用相同欄位結構嘅區域 */
+function clusterColumns(xs, tol){
+  const sorted = [...xs].sort((a, b) => a - b);
+  const clusters = [];
+  for (const x of sorted){
+    const last = clusters[clusters.length - 1];
+    if (last && x - last.center <= tol){ last.center = (last.center * last.count + x) / (last.count + 1); last.count++; }
+    else clusters.push({ center: x, count: 1 });
+  }
+  return clusters.map(c => c.center);
+}
+function nearestCol(x, cols){ let best = cols[0], bd = Infinity; for (const c of cols){ const d = Math.abs(c - x); if (d < bd){ bd = d; best = c; } } return best; }
+function linesToBody(lines, detectTables){
+  const plain = () => lines.map(l => {
+    const txt = l.items.map(i => i.str).join(" ").replace(/\s+/g, " ").trim();
+    if (!txt) return "";
+    const bold = l.items.length && l.items.every(i => i.bold);
+    const sz = Math.round(Math.max(...l.items.map(i => i.size)));
+    return paraXml(txt, { bold, size: sz });
+  }).join("");
+  if (!detectTables) return plain();
+  try {
+    const allX = []; lines.forEach(l => l.items.forEach(i => allX.push(i.x)));
+    if (lines.length < 2 || allX.length < 6) return plain();
+    const cols = clusterColumns(allX, 12);
+    if (cols.length < 2) return plain();
+    lines.forEach(l => l.items.forEach(i => i.col = nearestCol(i.x, cols)));
+    const out = []; let i = 0;
+    while (i < lines.length){
+      const l = lines[i];
+      const distinct = new Set(l.items.map(it => it.col));
+      if (distinct.size >= 2){
+        const group = [l]; let j = i + 1;
+        while (j < lines.length){
+          const nl = lines[j];
+          const nd = new Set(nl.items.map(it => it.col));
+          if (nd.size >= 2 && [...nd].some(c => distinct.has(c))){ group.push(nl); j++; } else break;
+        }
+        if (group.length >= 2){
+          const colCount = {};
+          group.forEach(gl => gl.items.forEach(it => colCount[it.col] = (colCount[it.col] || 0) + 1));
+          const thr = Math.max(2, Math.ceil(group.length / 2));
+          const tcols = [...new Set(group.flatMap(gl => gl.items.map(it => it.col)))].filter(c => colCount[c] >= thr).sort((a, b) => a - b);
+          if (tcols.length >= 2){
+            const rows = group.map(gl => {
+              const cells = {};
+              gl.items.forEach(it => { const c = nearestCol(it.x, tcols); cells[c] = (cells[c] ? cells[c] + " " : "") + it.str; });
+              return tcols.map(c => (cells[c] || "").trim());
+            });
+            out.push(tableXml(rows)); i = j; continue;
+          }
+        }
+      }
+      const txt = l.items.map(it => it.str).join(" ").replace(/\s+/g, " ").trim();
+      if (txt){
+        const bold = l.items.length && l.items.every(it => it.bold);
+        const sz = Math.round(Math.max(...l.items.map(it => it.size)));
+        out.push(paraXml(txt, { bold, size: sz }));
+      }
+      i++;
+    }
+    return out.join("");
+  } catch (e){ console.warn("table detect fallback", e); return plain(); }
+}
+
+async function pdfToDocxBlob(buffer, opts){
+  opts = opts || {};
+  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  let body = "";
+  for (let pi = 0; pi < pdfjsDoc.numPages; pi++){
+    const page = await pdfjsDoc.getPage(pi + 1);
+    const tc = await page.getTextContent();
+    const lines = [];
+    for (const it of tc.items){
+      if (!it.str || !it.str.trim()) continue;
+      const tr = it.transform;
+      const x = tr[4], y = Math.round(tr[5]);
+      const size = Math.hypot(tr[2], tr[3]) || it.height || 10;
+      const bold = /bold|black|heavy|semibold/i.test(it.fontName || "");
+      let line = lines.find(l => Math.abs(l.y - y) <= Math.max(3, size * 0.5));
+      if (!line){ line = { y, items: [] }; lines.push(line); }
+      line.items.push({ x, str: it.str, size, bold });
+    }
+    lines.sort((a, b) => b.y - a.y);
+    lines.forEach(l => l.items.sort((a, b) => a.x - b.x));
+    body += linesToBody(lines, opts.detectTables);
+    body += "<w:p/>";
+  }
+  pdfjsDoc.destroy();
+  return await makeDocx(body);
+}
+
+/* =====================================================
+   DOCX → HTML → PDF
+===================================================== */
+function ooxmlLocal(el){ return el.localName || (el.tagName || "").replace(/^.*:/, ""); }
+function ooxmlRunToHtml(r){
+  const rpr = r.getElementsByTagName("w:rPr")[0];
+  let bold = false, italic = false, underline = false, strike = false, size = null, color = null;
+  if (rpr){
+    if (rpr.getElementsByTagName("w:b").length) bold = true;
+    if (rpr.getElementsByTagName("w:i").length) italic = true;
+    if (rpr.getElementsByTagName("w:u").length) underline = true;
+    if (rpr.getElementsByTagName("w:strike").length) strike = true;
+    const sz = rpr.getElementsByTagName("w:sz")[0];
+    if (sz && sz.getAttribute("w:val")) size = parseInt(sz.getAttribute("w:val")) / 2;
+    const col = rpr.getElementsByTagName("w:color")[0];
+    if (col && col.getAttribute("w:val")) color = "#" + col.getAttribute("w:val");
+  }
+  let text = "";
+  for (const t of Array.from(r.getElementsByTagName("w:t"))) text += t.textContent;
+  const styles = [];
+  if (size) styles.push("font-size:" + size + "px");
+  if (color) styles.push("color:" + color);
+  const sa = styles.length ? ` style="${styles.join(";")}"` : "";
+  const esc = escapeHtml(text);
+  const open = (bold ? "<strong>" : "") + (italic ? "<em>" : "") + (underline ? "<u>" : "") + (strike ? "<s>" : "");
+  const close = (strike ? "</s>" : "") + (underline ? "</u>" : "") + (italic ? "</em>" : "") + (bold ? "</strong>" : "");
+  return `${open}<span${sa}>${esc}</span>${close}`;
+}
+function ooxmlParaToHtml(p){
+  const pPr = p.getElementsByTagName("w:pPr")[0];
+  let tag = "p", style = "", isLi = false;
+  if (pPr){
+    const ps = pPr.getElementsByTagName("w:pStyle")[0];
+    const val = (ps && ps.getAttribute("w:val")) || "";
+    const m = /heading\s*([1-6])/i.exec(val);
+    if (m) tag = "h" + m[1];
+    else if (/title/i.test(val)) tag = "h1";
+    else if (/list/i.test(val)) isLi = true;
+    const jc = pPr.getElementsByTagName("w:jc")[0];
+    if (jc && jc.getAttribute("w:val")) style = ` style="text-align:${jc.getAttribute('w:val')}"`;
+  }
+  let inner = "";
+  for (const ch of Array.from(p.childNodes)){
+    if (ch.nodeType !== 1) continue;
+    const ln = ooxmlLocal(ch);
+    if (ln === "r") inner += ooxmlRunToHtml(ch);
+    else if (ln === "hyperlink"){ for (const r of Array.from(ch.getElementsByTagName("w:r"))) inner += ooxmlRunToHtml(r); }
+  }
+  if (!inner.trim()) inner = "&nbsp;";
+  if (isLi) return `<li>${inner}</li>`;
+  return `<${tag}${style}>${inner}</${tag}>`;
+}
+function ooxmlTableToHtml(tbl){
+  let rows = "";
+  for (const tr of Array.from(tbl.getElementsByTagName("w:tr"))){
+    let cells = "";
+    for (const tc of Array.from(tr.getElementsByTagName("w:tc"))){
+      let inner = "";
+      for (const p of Array.from(tc.getElementsByTagName("w:p"))) inner += (inner ? "<br>" : "") + ooxmlParaToHtml(p);
+      cells += `<td style="border:1px solid #999;padding:4px;vertical-align:top">${inner}</td>`;
+    }
+    rows += `<tr>${cells}</tr>`;
+  }
+  return `<table style="border-collapse:collapse;width:100%;margin:6px 0">${rows}</table>`;
+}
+function ooxmlToHtml(xml){
+  const dom = new DOMParser().parseFromString(xml, "application/xml");
+  const body = dom.getElementsByTagName("w:body")[0] || dom.documentElement;
+  let out = "";
+  for (const el of Array.from(body.childNodes)){
+    if (el.nodeType !== 1) continue;
+    const ln = ooxmlLocal(el);
+    if (ln === "p") out += ooxmlParaToHtml(el);
+    else if (ln === "tbl") out += ooxmlTableToHtml(el);
+  }
+  return out;
+}
+async function docxToHtml(buffer){
+  const zip = await JSZip.loadAsync(buffer);
+  const f = zip.file("word/document.xml");
+  if (!f) throw new Error("唔係有效嘅 DOCX 檔案（搵唔到 word/document.xml）");
+  const xml = await f.async("string");
+  return ooxmlToHtml(xml);
+}
+async function docxToPdfBlob(buffer){
+  const html = await docxToHtml(buffer);
+  const full = `<div style="font-family:'Noto Sans HK','PingFang HK','Microsoft JhengHei',sans-serif;font-size:12px;line-height:1.55;color:#111">${html}</div>`;
+  return await htmlToPdfBlob(full);
+}
+
+/* =====================================================
+   萬物轉 PDF
+===================================================== */
+function normalizeHtml(raw){
+  const trimmed = raw.trim();
+  if (/<html[\s>]/i.test(trimmed) || /<body[\s>]/i.test(trimmed)){
+    const dom = new DOMParser().parseFromString(raw, "text/html");
+    const styles = [...dom.querySelectorAll("style")].map(s => s.textContent).join("\n");
+    const bodyHtml = dom.body ? dom.body.innerHTML : trimmed;
+    return (styles ? `<style>${styles}</style>` : "") + bodyHtml;
+  }
+  return raw;
+}
+async function convertAnythingToPdf(file){
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")){
+    return new Blob([await file.arrayBuffer()], { type: "application/pdf" });
+  }
+  if (name.endsWith(".docx")){
+    return await docxToPdfBlob(await file.arrayBuffer());
+  }
+  if (/\.html?$/.test(name)){
+    const html = normalizeHtml(await file.text());
+    return await htmlToPdfBlob(html);
+  }
+  if (/^image\//.test(file.type) || /\.(png|jpe?g|gif|bmp|webp|tiff?)$/i.test(name)){
+    return await imagesToPdfBlob([file], { pageSize: "a4", orient: "auto" });
+  }
+  if (file.type.startsWith("text/") || /\.(txt|md|markdown|json|csv|xml|js|ts|jsx|tsx|py|java|c|cpp|cs|go|rs|rb|php|sh|yml|yaml|ini|conf|log|sql|css|scss|less|svg)$/i.test(name)){
+    const text = await file.text();
+    const html = `<pre style="font-family:Consolas,'Courier New',monospace;font-size:11px;line-height:1.4;white-space:pre-wrap;word-break:break-word;margin:0;padding:8px;color:#111">${escapeHtml(text)}</pre>`;
+    return await htmlToPdfBlob(html);
+  }
+  throw new Error("暫時唔支援呢種檔案格式");
+}
+
+/* =====================================================
+   5) 圖片 ⇄ PDF
+===================================================== */
+const I2P = { files: [] };
+wireDropzoneAny($("i2pDrop"), $("i2pFile"), files => {
+  files.forEach(f => {
+    if (/^image\//.test(f.type) || /\.(png|jpe?g|gif|bmp|webp|tiff?)$/i.test(f.name)) I2P.files.push(f);
+  });
+  renderI2P();
+});
+function renderI2P(){
+  const g = $("i2pGrid"); g.innerHTML = "";
+  I2P.files.forEach((f, idx) => {
+    const url = URL.createObjectURL(f);
+    const d = document.createElement("div"); d.className = "img-item";
+    d.innerHTML = `<img src="${url}" alt=""><div class="nm">${escapeHtml(f.name)}</div><div class="acts"><button data-a="up" title="向前">▲</button><button data-a="down" title="向後">▼</button><button data-a="del" title="移除">✕</button></div>`;
+    d.querySelector(".acts").addEventListener("click", e => {
+      const a = e.target.dataset.a; if (!a) return;
+      if (a === "del") I2P.files.splice(idx, 1);
+      if (a === "up" && idx > 0){ const t = I2P.files[idx - 1]; I2P.files[idx - 1] = I2P.files[idx]; I2P.files[idx] = t; }
+      if (a === "down" && idx < I2P.files.length - 1){ const t = I2P.files[idx + 1]; I2P.files[idx + 1] = I2P.files[idx]; I2P.files[idx] = t; }
+      renderI2P();
+    });
+    g.appendChild(d);
+  });
+}
+$("i2pGo").onclick = async () => {
+  const st = $("i2pStatus");
+  if (!I2P.files.length){ setStatus(st, "請先加入圖片。", "err"); return; }
+  setStatus(st, "⏳ 轉換中…", "busy");
+  try {
+    const blob = await imagesToPdfBlob(I2P.files, { pageSize: $("i2pSize").value, orient: $("i2pOrient").value });
+    downloadBlob(blob, "Images.pdf");
+    setStatus(st, "✅ 搞掂！已下載 Images.pdf", "ok");
+  } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
+
+const P2I = { file: null, buffer: null };
+wireDropzoneAny($("p2iDrop"), $("p2iFile"), async files => {
+  const st = $("p2iStatus"); const f = files[0];
+  setStatus(st, `⏳ 讀緊「${f.name}」…`, "busy");
+  try {
+    P2I.buffer = await f.arrayBuffer(); P2I.file = f;
+    const doc = await loadPdfLib(P2I.buffer);
+    $("p2iList").innerHTML = `<li><span class="name">📄 ${escapeHtml(f.name)}</span><span class="pages">共 ${doc.getPageCount()} 頁</span></li>`;
+    setStatus(st, "✅ 已載入。", "ok");
+  } catch (err){ console.error(err); setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err"); }
+});
+$("p2iGo").onclick = async () => {
+  const st = $("p2iStatus");
+  if (!P2I.file){ setStatus(st, "請先上載一個 PDF。", "err"); return; }
+  setStatus(st, "⏳ 匯出中…", "busy");
+  try {
+    const fmt = $("p2iFmt").value, dpi = parseInt($("p2iDpi").value);
+    const out = await pdfToImages(P2I.buffer, { format: fmt, dpi });
+    if (out.length === 1){ downloadBlob(out[0].blob, out[0].name); setStatus(st, "✅ 已下載 " + out[0].name, "ok"); }
+    else {
+      const zip = new JSZip(); out.forEach(o => zip.file(o.name, o.blob));
+      const zb = await zip.generateAsync({ type: "blob" });
+      downloadBlob(zb, baseName(P2I.file.name) + "_images.zip");
+      setStatus(st, `✅ 搞掂！已下載 ZIP（${out.length} 張圖片）`, "ok");
+    }
+  } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
+wireSeg($("imgSeg"), v => { $("i2pView").classList.toggle("active", v === "i2p"); $("p2iView").classList.toggle("active", v === "p2i"); });
+
+/* =====================================================
+   6) PDF ⇄ Word（DOCX）
+===================================================== */
+const P2D = { file: null, buffer: null };
+wireDropzoneAny($("p2dDrop"), $("p2dFile"), async files => {
+  const st = $("p2dStatus"); const f = files[0];
+  try {
+    P2D.buffer = await f.arrayBuffer(); P2D.file = f;
+    const doc = await loadPdfLib(P2D.buffer);
+    $("p2dList").innerHTML = `<li><span class="name">📄 ${escapeHtml(f.name)}</span><span class="pages">共 ${doc.getPageCount()} 頁</span></li>`;
+    setStatus(st, "✅ 已載入。", "ok");
+  } catch (err){ setStatus(st, "❌ " + (err.message || err), "err"); }
+});
+$("p2dGo").onclick = async () => {
+  const st = $("p2dStatus");
+  if (!P2D.file){ setStatus(st, "請先上載一個 PDF。", "err"); return; }
+  setStatus(st, "⏳ 提取文字並產生 DOCX…", "busy");
+  try {
+    const blob = await pdfToDocxBlob(P2D.buffer, { detectTables: $("p2dTables").checked });
+    downloadBlob(blob, stripExt(P2D.file.name) + ".docx");
+    setStatus(st, "✅ 搞掂！已下載 DOCX", "ok");
+  } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
+
+const D2P = { file: null, buffer: null };
+wireDropzoneAny($("d2pDrop"), $("d2pFile"), async files => {
+  const st = $("d2pStatus"); const f = files[0];
+  try {
+    D2P.buffer = await f.arrayBuffer(); D2P.file = f;
+    $("d2pList").innerHTML = `<li><span class="name">📘 ${escapeHtml(f.name)}</span></li>`;
+    setStatus(st, "✅ 已載入。", "ok");
+  } catch (err){ setStatus(st, "❌ " + (err.message || err), "err"); }
+});
+$("d2pGo").onclick = async () => {
+  const st = $("d2pStatus");
+  if (!D2P.file){ setStatus(st, "請先上載一個 DOCX。", "err"); return; }
+  setStatus(st, "⏳ 解析 DOCX 並轉做 PDF…", "busy");
+  try {
+    const blob = await docxToPdfBlob(D2P.buffer);
+    downloadBlob(blob, stripExt(D2P.file.name) + ".pdf");
+    setStatus(st, "✅ 搞掂！已下載 PDF", "ok");
+  } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
+wireSeg($("wordSeg"), v => { $("p2dView").classList.toggle("active", v === "p2d"); $("d2pView").classList.toggle("active", v === "d2p"); });
+
+/* =====================================================
+   7) 萬物轉 PDF
+===================================================== */
+const ANY = { files: [] };
+wireDropzoneAny($("anyDrop"), $("anyFile"), files => { ANY.files.push(...files); renderAny(); });
+function renderAny(){
+  const ul = $("anyList"); ul.innerHTML = "";
+  ANY.files.forEach((f, idx) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="name">📎 ${escapeHtml(f.name)}</span><span class="pages">${(f.type || "").split("/")[1] || "檔案"}</span>`;
+    const btn = document.createElement("button");
+    btn.className = "btn danger"; btn.style.cssText = "padding:2px 10px;font-size:.75rem";
+    btn.textContent = "移除";
+    btn.onclick = () => { ANY.files.splice(idx, 1); renderAny(); };
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+$("anyGo").onclick = async () => {
+  const st = $("anyStatus");
+  if (!ANY.files.length){ setStatus(st, "請先加入檔案。", "err"); return; }
+  setStatus(st, "⏳ 轉換中…", "busy");
+  try {
+    const results = [];
+    for (let i = 0; i < ANY.files.length; i++){
+      const f = ANY.files[i];
+      setStatus(st, `⏳ 轉換緊 ${i + 1}/${ANY.files.length}：「${f.name}」…`, "busy");
+      try {
+        const blob = await convertAnythingToPdf(f);
+        results.push({ name: stripExt(f.name) + ".pdf", blob });
+      } catch (err){ console.warn(f.name, err); results.push({ name: f.name, error: err.message || String(err) }); }
+    }
+    const ok = results.filter(r => r.blob);
+    if (ok.length === 1){ downloadBlob(ok[0].blob, ok[0].name); }
+    else if (ok.length > 1){
+      const zip = new JSZip();
+      ok.forEach(r => zip.file(r.name, r.blob));
+      const zb = await zip.generateAsync({ type: "blob" });
+      downloadBlob(zb, "Converted_PDFs.zip");
+    }
+    const errs = results.filter(r => r.error);
+    if (errs.length) setStatus(st, `⚠️ 完成 ${ok.length} 個，但 ${errs.length} 個失敗：` + errs.map(e => e.name).join("、"), "err");
+    else setStatus(st, `✅ 搞掂！已轉換並下載 ${ok.length} 個 PDF。`, "ok");
+  } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
 </script>
 </body>
 </html>
