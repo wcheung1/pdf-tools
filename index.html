@@ -181,10 +181,20 @@ input[type=text]{
 
 /* ---------- Text editor ---------- */
 .anno-layer{position:absolute;top:0;left:0}
-.anno{position:absolute;cursor:move;line-height:1.2;padding:0 1px;white-space:pre;font-family:Helvetica,Arial,sans-serif;border:1px dashed transparent}
+.anno{position:absolute;cursor:move;line-height:1.2;padding:0 1px;white-space:pre;font-family:Helvetica,Arial,"Noto Sans HK","PingFang HK","Microsoft JhengHei",sans-serif;border:1px dashed transparent}
 .anno:hover{border-color:rgba(30,111,92,.5)}
 .anno.selected{border-color:var(--accent)}
 .anno.cover{background:#fff}
+/* ---------- Color picker ---------- */
+.color-block{border:1px solid var(--line);border-radius:8px;padding:8px;background:#FCFDFB;margin-top:4px}
+.swatches{display:flex;gap:4px;flex-wrap:wrap}
+.swatch{width:20px;height:20px;border-radius:4px;border:1px solid #B9C7BD;cursor:pointer;padding:0;appearance:none}
+.swatch:hover{transform:scale(1.12)}
+.color-rgb{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:.8rem}
+.color-rgb label{display:inline-flex;align-items:center;gap:3px;font-weight:600;color:var(--ink-soft)}
+.color-rgb input[type=number]{width:54px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:.85rem;background:#fff;font-weight:400}
+input[type=color]{width:46px;height:34px;border:1px solid var(--line);border-radius:7px;padding:2px;background:#fff;cursor:pointer}
+input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;font-size:.9rem;background:#FCFDFB;color:var(--ink)}
 /* ---------- 新分頁元件 ---------- */
 .subview{display:none}
 .subview.active{display:block}
@@ -231,6 +241,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-image" role="tab">🖼️ 圖片 ⇄ PDF</button>
       <button data-panel="panel-word" role="tab">📄 PDF ⇄ Word</button>
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
+      <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
     </nav>
   </div>
 </header>
@@ -359,7 +370,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 
   <div class="box" id="tePropsBox" hidden style="position:sticky;top:54px;z-index:15">
-    <div class="hint" style="margin-bottom:10px">⚠️ 內建字型只支援<b>英文、數字、符號</b>（拉丁字元）。中文／日文等暫時唔支援。</div>
+    <div class="hint" style="margin-bottom:10px">✅ 已支援<b>繁體中文</b>及其他中文／日文等非拉丁字元。含中文嘅文字方塊會以高解像圖片方式嵌入 PDF（英文／數字仍為向量文字）。</div>
     <label class="field-label">內容</label>
     <textarea id="teContent" rows="2" style="min-height:auto" placeholder="Type text here..."></textarea>
     <div class="export-row">
@@ -367,13 +378,29 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
         <label class="field-label">字型大細</label>
         <input type="text" id="teSize" value="14" style="width:80px">
       </div>
-      <div>
+      <div style="flex:1;min-width:240px">
         <label class="field-label">文字顏色</label>
-        <input type="text" id="teColor" value="#000000" style="width:100px">
+        <div class="color-block">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="color" id="teColorPicker" value="#000000">
+            <input type="text" id="teColor" value="#000000" style="width:96px" placeholder="#000000">
+          </div>
+          <div class="swatches" id="teSwatches" style="margin-top:6px"></div>
+          <div class="color-rgb">
+            <label>R<input type="number" id="teColorR" min="0" max="255" value="0"></label>
+            <label>G<input type="number" id="teColorG" min="0" max="255" value="0"></label>
+            <label>B<input type="number" id="teColorB" min="0" max="255" value="0"></label>
+          </div>
+          <div class="color-rgb">
+            <label>H<input type="number" id="teColorH" min="0" max="360" value="0"></label>
+            <label>S(%)<input type="number" id="teColorS" min="0" max="100" value="0"></label>
+            <label>B(%)<input type="number" id="teColorBr" min="0" max="100" value="0"></label>
+          </div>
+        </div>
       </div>
       <div style="display:flex;align-items:flex-end;gap:6px">
         <input type="checkbox" id="teCover">
-        <label for="teCover" style="font-weight:600;font-size:.92rem;cursor:pointer">白底覆蓋（遮住原本嘅字）</label>
+        <label for="teCover" style="font-weight:600;font-size:.92rem;cursor:pointer">白底覆蓋</label>
       </div>
     </div>
   </div>
@@ -480,6 +507,56 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 </section>
 
+<!-- ============ 8. 裁邊工具（Trim Margins） ============ -->
+<section id="panel-trim" class="panel">
+  <div class="box">
+    <h2>裁邊工具（Trim Margins）</h2>
+    <p class="desc">將 PDF 嘅上、下、左、右邊界切走，令版面縮細。可以揀套用至<b>所有頁面</b>，或者只套用至<b>指定頁面</b>。裁切只會收細頁面邊界，唔會影響入面嘅文字圖片內容本身。</p>
+    <div class="dropzone" id="trDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="trFileInput" accept="application/pdf">
+    <ul class="file-list" id="trFileList"></ul>
+    <div class="status" id="trLoadStatus"></div>
+  </div>
+
+  <div class="box" id="trSettings" hidden>
+    <label class="field-label">裁切單位</label>
+    <div class="opt-grid">
+      <label>單位
+        <select id="trUnit">
+          <option value="mm" selected>mm（毫米）</option>
+          <option value="cm">cm（厘米）</option>
+          <option value="px">px（像素 · 96dpi）</option>
+          <option value="pt">pt（PDF 點 · 1/72 吋）</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="field-label" style="margin-top:10px">每邊裁切量</label>
+    <div class="opt-grid">
+      <label>上（Top）<input type="number" id="trTop" value="0" min="0" step="0.1"></label>
+      <label>下（Bottom）<input type="number" id="trBottom" value="0" min="0" step="0.1"></label>
+      <label>左（Left）<input type="number" id="trLeft" value="0" min="0" step="0.1"></label>
+      <label>右（Right）<input type="number" id="trRight" value="0" min="0" step="0.1"></label>
+    </div>
+
+    <label class="field-label" style="margin-top:10px">套用範圍</label>
+    <div class="seg" id="trScopeSeg">
+      <button type="button" class="active" data-scope="all">📄 所有頁面</button>
+      <button type="button" data-scope="pages">🔢 指定頁面</button>
+    </div>
+    <div id="trPagesRow" hidden>
+      <label class="field-label" style="margin-top:8px">頁面編號（例如 1-3,5,7）</label>
+      <input type="text" id="trPages" placeholder="1-3,5,7">
+    </div>
+
+    <div class="note" id="trInfo"></div>
+    <div class="export-row">
+      <button class="btn big" id="trGo">✂️ 裁邊並下載 PDF</button>
+    </div>
+    <div class="status" id="trStatus"></div>
+  </div>
+</section>
+
 </main>
 
 <footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js + JSZip）· 可以直接放上 GitHub Pages / Netlify 托管</footer>
@@ -499,9 +576,19 @@ function setStatus(el, msg, kind){
 }
 
 function downloadBlob(blob, name){
+  // 自動加上時間戳 YYYYMMDD_HHMMSS 喺副檔名之前
+  const now = new Date();
+  const pad2 = n => String(n).padStart(2, "0");
+  const stamp =
+    now.getFullYear() + pad2(now.getMonth() + 1) + pad2(now.getDate()) +
+    "_" + pad2(now.getHours()) + pad2(now.getMinutes()) + pad2(now.getSeconds());
+  const dot = name.lastIndexOf(".");
+  let stamped;
+  if (dot > 0) stamped = name.slice(0, dot) + "_" + stamp + name.slice(dot);
+  else stamped = name + "_" + stamp;
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = name;
+  link.download = stamped;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 30000);
 }
@@ -1097,6 +1184,7 @@ function syncPropsFromAnno(a){
   $("teSize").value = a.size;
   $("teColor").value = a.color;
   $("teCover").checked = a.cover;
+  syncColorPickerFromHex(a.color);
 }
 
 $("teDelText").onclick = () => {
@@ -1162,39 +1250,70 @@ window.addEventListener("mousemove", e => {
 window.addEventListener("mouseup", () => { dragInfo = null; });
 
 // 輸出 PDF：用 pdf-lib 喺每頁印文字
+// 拉丁字元用向量文字；中文／非拉丁字元用高解像 PNG 圖片嵌入
 $("teExport").onclick = async () => {
   const st = $("teStatus");
-  // 先檢查有冇非拉丁字元（pdf-lib 內建字型唔支援中文等）
-  const bad = [];
-  TE.annosByPage.forEach((arr, pi) => arr.forEach(a => {
-    if (a.text && /[^\x00-\x7F]/.test(a.text)) bad.push(`第 ${pi+1} 頁「${a.text.slice(0,12)}…」`);
-  }));
-  if (bad.length){
-    setStatus(st, "❌ pdf-lib 內建字型只支援英文/數字/符號。請將以下文字改成拉丁字元：" + bad.join("、"), "err");
-    return;
-  }
   setStatus(st, "⏳ 輸出中…", "busy");
   try {
     const out = await PDFLib.PDFDocument.create();
     const font = await out.embedFont(PDFLib.StandardFonts.Helvetica);
     const pages = await out.copyPages(TE.pdfLibDoc, TE.pages.map((_, i) => i));
+    const ANNO_FONT = "Helvetica,Arial,'Noto Sans HK','PingFang HK','Microsoft JhengHei',sans-serif";
+    const DPI = 3;  // 高解像渲染倍數
     for (let i = 0; i < pages.length; i++){
       const pg = pages[i];
       out.addPage(pg);
       const { height } = pg.getSize();
       for (const a of TE.annosByPage[i]){
         const py = height - a.y - a.size;  // PDF 座標由底起，DOM 由頂起
-        if (a.cover){
-          // 量度文字寬度做白底
-          const w = font.widthOfTextAtSize(a.text || " ", a.size);
-          pg.drawRectangle({ x: a.x - 1, y: py - 1, width: w + 2, height: a.size * 1.25 + 2, color: PDFLib.rgb(1,1,1) });
+        const text = a.text || " ";
+        const hasCJK = /[^\x00-\x7F]/.test(text);
+        if (!hasCJK){
+          // 純拉丁：向量文字
+          if (a.cover){
+            const w = font.widthOfTextAtSize(text, a.size);
+            pg.drawRectangle({ x: a.x - 1, y: py - 1, width: w + 2, height: a.size * 1.25 + 2, color: PDFLib.rgb(1,1,1) });
+          }
+          pg.drawText(text, {
+            x: a.x, y: py,
+            size: a.size,
+            font,
+            color: hexToRgb(a.color)
+          });
+        } else {
+          // 含中文／非拉丁：以高解像 PNG 嵌入
+          const cssFont = a.size + "px " + ANNO_FONT;
+          // 先用臨時 context 量度文字尺寸
+          const mctx = document.createElement("canvas").getContext("2d");
+          mctx.font = cssFont;
+          const m = mctx.measureText(text);
+          const ascent = m.actualBoundingBoxAscent || a.size * 0.8;
+          const descent = m.actualBoundingBoxDescent || a.size * 0.2;
+          const textW = Math.max(1, m.width);
+          const textH = Math.max(1, ascent + descent);
+          const padX = 1, padY = 1;
+          const drawW = textW + padX * 2;
+          const drawH = textH + padY * 2;
+          // 高 DPI canvas
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.ceil(drawW * DPI);
+          canvas.height = Math.ceil(drawH * DPI);
+          const ctx = canvas.getContext("2d");
+          ctx.scale(DPI, DPI);
+          if (a.cover){
+            // 白底覆蓋：填白底去遮住原本嘅字
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, drawW, drawH);
+          }
+          ctx.fillStyle = a.color;
+          ctx.font = cssFont;
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(text, padX, padY + ascent);
+          const bytes = await canvasToUint8(canvas, "image/png");
+          const img = await out.embedPng(bytes);
+          // 對齊基線至 py（同向量文字一致）
+          pg.drawImage(img, { x: a.x - padX, y: py - descent - padY, width: drawW, height: drawH });
         }
-        pg.drawText(a.text, {
-          x: a.x, y: py,
-          size: a.size,
-          font,
-          color: hexToRgb(a.color)
-        });
       }
     }
     const bytes = await out.save();
@@ -1212,6 +1331,137 @@ function hexToRgb(hex){
   const n = parseInt(m[1], 16);
   return PDFLib.rgb(((n >> 16) & 255)/255, ((n >> 8) & 255)/255, (n & 255)/255);
 }
+
+/* =====================================================
+   顏色選擇器同步邏輯（palette + RGB + HSB）
+===================================================== */
+const TE_PALETTE = [
+  "#000000","#444444","#888888","#CCCCCC","#FFFFFF",
+  "#FF0000","#E67E22","#F1C40F","#27AE60","#1E6F5C",
+  "#2980B9","#8E44AD","#C0392B","#16A085","#34495E"
+];
+
+function hexToRgbObj(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return { r:0, g:0, b:0 };
+  const n = parseInt(m[1], 16);
+  return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+function rgbObjToHex(r,g,b){
+  const cl = v => Math.max(0,Math.min(255,Math.round(v)));
+  const h = v => cl(v).toString(16).padStart(2,"0");
+  return "#" + h(r) + h(g) + h(b);
+}
+function rgbToHsb(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+  let h=0;
+  if (d!==0){
+    if (max===r) h=60*(((g-b)/d)%6);
+    else if (max===g) h=60*((b-r)/d+2);
+    else h=60*((r-g)/d+4);
+  }
+  if (h<0) h+=360;
+  const s = max===0 ? 0 : (d/max)*100;
+  const br = max*100;
+  return { h:Math.round(h), s:Math.round(s), b:Math.round(br) };
+}
+function hsbToRgb(h,s,b){
+  h=((h%360)+360)%360; s=Math.max(0,Math.min(100,s))/100; b=Math.max(0,Math.min(100,b))/100;
+  const c=b*s, x=c*(1-Math.abs((h/60)%2-1)), m=b-c;
+  let r=0,g=0,bl=0;
+  if (h<60){r=c;g=x;bl=0;}
+  else if (h<120){r=x;g=c;bl=0;}
+  else if (h<180){r=0;g=c;bl=x;}
+  else if (h<240){r=0;g=x;bl=c;}
+  else if (h<300){r=x;g=0;bl=c;}
+  else {r=c;g=0;bl=x;}
+  return { r:(r+m)*255, g:(g+m)*255, b:(bl+m)*255 };
+}
+
+let colorSyncBusy = false;
+function syncColorPickerFromHex(hex){
+  const hx = /^#/.test(hex) ? hex : ("#"+hex);
+  const {r,g,b} = hexToRgbObj(hx);
+  const hsb = rgbToHsb(r,g,b);
+  const full = rgbObjToHex(r,g,b);
+  colorSyncBusy = true;
+  try {
+    $("teColorPicker").value = full;
+    $("teColor").value = full;
+    $("teColorR").value = r;
+    $("teColorG").value = g;
+    $("teColorB").value = b;
+    $("teColorH").value = hsb.h;
+    $("teColorS").value = hsb.s;
+    $("teColorBr").value = hsb.b;
+  } finally { colorSyncBusy = false; }
+}
+
+// 渲染色板
+(function(){
+  const box = $("teSwatches");
+  if (!box) return;
+  TE_PALETTE.forEach(c => {
+    const sw = document.createElement("button");
+    sw.type = "button";
+    sw.className = "swatch";
+    sw.style.background = c;
+    sw.title = c;
+    sw.addEventListener("click", () => {
+      const a = curAnno(); if (!a) return;
+      a.color = c;
+      updateAnnoEl(a);
+      syncColorPickerFromHex(c);
+    });
+    box.appendChild(sw);
+  });
+})();
+
+// 選色器（color picker）
+$("teColorPicker").addEventListener("input", () => {
+  if (colorSyncBusy) return;
+  const a = curAnno(); if (!a) return;
+  a.color = $("teColorPicker").value;
+  updateAnnoEl(a);
+  syncColorPickerFromHex(a.color);
+});
+// Hex 文字欄
+$("teColor").addEventListener("input", () => {
+  if (colorSyncBusy) return;
+  const a = curAnno(); if (!a) return;
+  let v = $("teColor").value.trim();
+  if (/^[0-9a-f]{6}$/i.test(v)) v = "#" + v;
+  if (/^#[0-9a-f]{6}$/i.test(v)){
+    a.color = v.toLowerCase();
+    updateAnnoEl(a);
+    syncColorPickerFromHex(a.color);
+  }
+});
+// RGB 數字欄
+["teColorR","teColorG","teColorB"].forEach(id => {
+  $(id).addEventListener("input", () => {
+    if (colorSyncBusy) return;
+    const a = curAnno(); if (!a) return;
+    const r = +$("teColorR").value || 0, g = +$("teColorG").value || 0, b = +$("teColorB").value || 0;
+    a.color = rgbObjToHex(r,g,b);
+    updateAnnoEl(a);
+    syncColorPickerFromHex(a.color);
+  });
+});
+// HSB 數字欄
+["teColorH","teColorS","teColorBr"].forEach(id => {
+  $(id).addEventListener("input", () => {
+    if (colorSyncBusy) return;
+    const a = curAnno(); if (!a) return;
+    const h = +$("teColorH").value || 0, s = +$("teColorS").value || 0, br = +$("teColorBr").value || 0;
+    const rgb = hsbToRgb(h,s,br);
+    a.color = rgbObjToHex(rgb.r,rgb.g,rgb.b);
+    updateAnnoEl(a);
+    syncColorPickerFromHex(a.color);
+  });
+});
+
 /* =====================================================
    共用新工具
 ===================================================== */
@@ -1803,6 +2053,127 @@ $("anyGo").onclick = async () => {
     if (errs.length) setStatus(st, `⚠️ 完成 ${ok.length} 個，但 ${errs.length} 個失敗：` + errs.map(e => e.name).join("、"), "err");
     else setStatus(st, `✅ 搞掂！已轉換並下載 ${ok.length} 個 PDF。`, "ok");
   } catch (err){ console.error(err); setStatus(st, "❌ " + (err.message || err), "err"); }
+};
+
+/* =====================================================
+   8) 裁邊工具（Trim Margins）
+===================================================== */
+const TR = { file: null, buffer: null, pageCount: 0, firstBox: null };
+
+wireDropzone($("trDrop"), $("trFileInput"), async files => {
+  const st = $("trLoadStatus");
+  const file = files[0];
+  setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
+  try {
+    TR.buffer = await file.arrayBuffer();
+    const doc = await loadPdfLib(TR.buffer);
+    TR.file = file;
+    TR.pageCount = doc.getPageCount();
+    const p0 = doc.getPage(0);
+    const mb = p0.getMediaBox();
+    TR.firstBox = { width: mb.width, height: mb.height };
+    $("trFileList").innerHTML =
+      `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
+      (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+      `<span class="pages">共 ${TR.pageCount} 頁</span></li>`;
+    $("trSettings").hidden = false;
+    updateTrimInfo();
+    setStatus(st, `✅ 已載入，共 ${TR.pageCount} 頁。`, "ok");
+  } catch (err){
+    console.error(err);
+    TR.file = null;
+    setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err");
+  }
+});
+
+// 套用範圍 segment（用 data-scope，唔用 wireSeg）
+(function(){
+  const btns = [...$("trScopeSeg").querySelectorAll("button")];
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    $("trPagesRow").hidden = b.dataset.scope !== "pages";
+    updateTrimInfo();
+  }));
+})();
+
+// 單位 / 邊界 / 頁面輸入 → 即時更新預覽資訊
+["trUnit","trTop","trBottom","trLeft","trRight","trPages"].forEach(id => {
+  $(id).addEventListener("input", updateTrimInfo);
+  $(id).addEventListener("change", updateTrimInfo);
+});
+
+// 單位換算成 PDF 點（pt）
+function trUnitFactor(unit){
+  if (unit === "mm") return 2.834645669;      // 72 / 25.4
+  if (unit === "cm") return 28.34645669;       // mm × 10
+  if (unit === "px") return 0.75;              // 72 / 96（96dpi）
+  return 1;                                     // pt
+}
+
+function updateTrimInfo(){
+  const info = $("trInfo");
+  if (!TR.file || !TR.firstBox){ info.textContent = ""; return; }
+  const f = trUnitFactor($("trUnit").value);
+  const top = (parseFloat($("trTop").value) || 0) * f;
+  const bottom = (parseFloat($("trBottom").value) || 0) * f;
+  const left = (parseFloat($("trLeft").value) || 0) * f;
+  const right = (parseFloat($("trRight").value) || 0) * f;
+  const w = TR.firstBox.width, h = TR.firstBox.height;
+  const nw = Math.max(1, w - left - right);
+  const nh = Math.max(1, h - top - bottom);
+  const activeBtn = $("trScopeSeg").querySelector("button.active");
+  const scope = activeBtn ? activeBtn.dataset.scope : "all";
+  const extra = scope === "pages" ? "，僅裁切指定頁面" : `，套用至全部 ${TR.pageCount} 頁`;
+  info.innerHTML = `📐 第 1 頁原始：<b>${w.toFixed(0)}×${h.toFixed(0)} pt</b>　裁切後：<b>${nw.toFixed(0)}×${nh.toFixed(0)} pt</b>${extra}`;
+}
+
+$("trGo").onclick = async () => {
+  const st = $("trStatus");
+  if (!TR.file){ setStatus(st, "請先上載一個 PDF。", "err"); return; }
+  const f = trUnitFactor($("trUnit").value);
+  const top = (parseFloat($("trTop").value) || 0) * f;
+  const bottom = (parseFloat($("trBottom").value) || 0) * f;
+  const left = (parseFloat($("trLeft").value) || 0) * f;
+  const right = (parseFloat($("trRight").value) || 0) * f;
+  if (top < 0 || bottom < 0 || left < 0 || right < 0){
+    setStatus(st, "❌ 裁切量唔可以係負數。", "err"); return;
+  }
+  const activeBtn = $("trScopeSeg").querySelector("button.active");
+  const scope = activeBtn ? activeBtn.dataset.scope : "all";
+  let targetPages = null;  // null = 全部頁面
+  if (scope === "pages"){
+    const str = $("trPages").value.trim();
+    if (!str){ setStatus(st, "❌ 請輸入要裁切嘅頁面編號。", "err"); return; }
+    try { targetPages = parsePageList(str, TR.pageCount, "裁邊工具"); }
+    catch (e){ setStatus(st, "❌ " + e.message, "err"); return; }
+  }
+  setStatus(st, "⏳ 裁切中…", "busy");
+  try {
+    const doc = await loadPdfLib(TR.buffer);
+    const pages = doc.getPages();
+    const target = new Set(targetPages ? targetPages : pages.map((_, i) => i + 1));
+    let trimmed = 0;
+    for (let i = 0; i < pages.length; i++){
+      if (!target.has(i + 1)) continue;
+      const pg = pages[i];
+      const mb = pg.getMediaBox();
+      // 新 MediaBox：x 向右移 left、y 向上移 bottom，
+      // 闊度減 left+right、高度減 top+bottom
+      const nx = mb.x + left;
+      const ny = mb.y + bottom;
+      const nw = Math.max(1, mb.width - left - right);
+      const nh = Math.max(1, mb.height - top - bottom);
+      pg.setMediaBox(nx, ny, nw, nh);
+      trimmed++;
+    }
+    const bytes = await doc.save();
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }), baseName(TR.file.name) + "_trimmed.pdf");
+    setStatus(st, `✅ 搞掂！已裁切 ${trimmed} 頁並下載。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 裁切失敗：" + (err.message || err), "err");
+  }
 };
 </script>
 </body>
