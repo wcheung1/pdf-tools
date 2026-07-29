@@ -178,6 +178,13 @@ input[type=text]{
 .lock-tag{font-size:.72rem;background:#FCF1E8;color:var(--warn);border:1px solid #EDD3BF;border-radius:4px;padding:0 5px}
 .export-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:14px}
 .export-row .grow{flex:1;min-width:220px}
+
+/* ---------- Text editor ---------- */
+.anno-layer{position:absolute;top:0;left:0}
+.anno{position:absolute;cursor:move;line-height:1.2;padding:0 1px;white-space:pre;font-family:Helvetica,Arial,sans-serif;border:1px dashed transparent}
+.anno:hover{border-color:rgba(30,111,92,.5)}
+.anno.selected{border-color:var(--accent)}
+.anno.cover{background:#fff}
 footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);font-size:.78rem;text-align:center}
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important}
@@ -198,6 +205,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button class="active" data-panel="panel-workspace" role="tab">🗂️ 頁面工作區</button>
       <button data-panel="panel-split" role="tab">✂️ 快速拆分</button>
       <button data-panel="panel-magic" role="tab">✨ 魔法合併器</button>
+      <button data-panel="panel-textedit" role="tab">📝 文字編輯器</button>
     </nav>
   </div>
 </header>
@@ -302,6 +310,57 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 
   <button class="btn big" id="btnMagic">✨ 立即 Generate 並下載</button>
   <div class="status" id="mgStatus"></div>
+</section>
+
+<!-- ============ 4. 文字編輯器 ============ -->
+<section id="panel-textedit" class="panel">
+  <div class="box">
+    <h2>文字編輯器</h2>
+    <p class="desc">喺 PDF 上面加新文字方塊、改內容、字型大細、顏色，仲可以拖嚟拖去定位。要「修改」原本嘅字？勾選<b>白底覆蓋</b>，用白色底遮住舊字再印新字上去就得。注意：PDF 格式本身冇真正嘅「可編輯文字流」，所以呢個係業界通用嘅「覆蓋 + 印新字」做法。</p>
+    <div class="dropzone" id="teDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="teFileInput" accept="application/pdf">
+    <ul class="file-list" id="teFileList"></ul>
+    <div class="status" id="teLoadStatus"></div>
+  </div>
+
+  <div class="toolbar" id="teToolbar" hidden>
+    <button class="btn secondary" id="tePrev" title="上一頁">◀</button>
+    <span class="count" id="tePageInfo">第 1 頁</span>
+    <button class="btn secondary" id="teNext" title="下一頁">▶</button>
+    <span class="spacer"></span>
+    <button class="btn" id="teAddText">＋ 加文字方塊</button>
+    <button class="btn danger" id="teDelText" title="刪除選取中嘅文字方塊">🗑️ 刪除所選</button>
+    <button class="btn" id="teExport">⬇️ 輸出 PDF</button>
+  </div>
+
+  <div class="box" id="tePropsBox" hidden style="position:sticky;top:54px;z-index:15">
+    <div class="hint" style="margin-bottom:10px">⚠️ 內建字型只支援<b>英文、數字、符號</b>（拉丁字元）。中文／日文等暫時唔支援。</div>
+    <label class="field-label">內容</label>
+    <textarea id="teContent" rows="2" style="min-height:auto" placeholder="Type text here..."></textarea>
+    <div class="export-row">
+      <div>
+        <label class="field-label">字型大細</label>
+        <input type="text" id="teSize" value="14" style="width:80px">
+      </div>
+      <div>
+        <label class="field-label">文字顏色</label>
+        <input type="text" id="teColor" value="#000000" style="width:100px">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:6px">
+        <input type="checkbox" id="teCover">
+        <label for="teCover" style="font-weight:600;font-size:.92rem;cursor:pointer">白底覆蓋（遮住原本嘅字）</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="teCanvasWrap" style="position:relative;display:flex;justify-content:center;background:#DDE3DC;padding:16px;border-radius:var(--radius);min-height:200px">
+    <div id="teStage" style="position:relative">
+      <canvas id="teCanvas" style="display:block;box-shadow:var(--shadow);background:#fff"></canvas>
+      <div class="anno-layer" id="teAnnoLayer"></div>
+    </div>
+    <div class="empty-hint" id="teEmpty" style="max-width:360px;align-self:center">未載入 PDF。請先喺上面上載一個 PDF 檔案。</div>
+  </div>
+  <div class="status" id="teStatus"></div>
 </section>
 
 </main>
@@ -807,6 +866,234 @@ async function generatePDF(){
     console.error(err);
     setStatus(st, "❌ 發生錯誤：" + (err.message || err), "err");
   }
+}
+
+/* =====================================================
+   4) 文字編輯器
+   註：pdf-lib 內建字型（Helvetica 等）只支援拉丁字母。
+       中文／日文等非拉丁字元暫時無法直接嵌入，
+       呢個係 pdf-lib 喺瀏覽器環境嘅限制。
+===================================================== */
+const TE = {
+  buffer: null,           // ArrayBuffer（原始 PDF）
+  pdfjsDoc: null,         // pdf.js document
+  pdfLibDoc: null,        // pdf-lib document
+  pages: [],              // [{ width, height }] PDF 原始尺寸（pt）
+  annosByPage: [],        // 每頁嘅註解陣列：[{ id, x, y, text, size, color, cover }]
+  curPage: 0,             // 0-based 當前頁
+  scale: 1,               // 顯示縮放（canvas 像素 / PDF pt）
+  selectedId: null,
+  nextAnnoId: 1
+};
+
+wireDropzone($("teDrop"), $("teFileInput"), async files => {
+  const st = $("teLoadStatus");
+  const file = files[0];
+  setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
+  try {
+    TE.buffer = await file.arrayBuffer();
+    TE.pdfjsDoc = await pdfjsLib.getDocument({ data: TE.buffer.slice(0) }).promise;
+    TE.pdfLibDoc = await loadPdfLib(TE.buffer);
+    const n = TE.pdfjsDoc.numPages;
+    TE.pages = []; TE.annosByPage = [];
+    for (let i = 0; i < n; i++){
+      const vp = (await TE.pdfjsDoc.getPage(i + 1)).getViewport({ scale: 1 });
+      TE.pages.push({ width: vp.width, height: vp.height });
+      TE.annosByPage.push([]);
+    }
+    $("teFileList").innerHTML =
+      `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
+      (TE.pdfLibDoc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+      `<span class="pages">共 ${n} 頁</span></li>`;
+    $("teToolbar").hidden = false;
+    $("teEmpty").style.display = "none";
+    $("teStage").style.display = "";
+    TE.curPage = 0;
+    TE.selectedId = null;
+    await renderTePage();
+    setStatus(st, `✅ 已載入，共 ${n} 頁。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err");
+  }
+});
+
+async function renderTePage(){
+  const page = await TE.pdfjsDoc.getPage(TE.curPage + 1);
+  // 依容器寬度計算縮放，最闊 900px
+  const maxW = Math.min(900, $("teCanvasWrap").clientWidth - 40);
+  const raw = TE.pages[TE.curPage];
+  TE.scale = Math.min(1.5, Math.max(0.4, maxW / raw.width));
+  const viewport = page.getViewport({ scale: TE.scale });
+  const canvas = $("teCanvas");
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  // 設定 anno-layer 同 canvas 對齊
+  const layer = $("teAnnoLayer");
+  layer.style.width = canvas.width + "px";
+  layer.style.height = canvas.height + "px";
+  layer.innerHTML = "";
+  for (const a of TE.annosByPage[TE.curPage]) layer.appendChild(buildAnnoEl(a));
+  $("tePageInfo").textContent = `第 ${TE.curPage + 1} / ${TE.pages.length} 頁`;
+  $("tePropsBox").hidden = true;
+}
+
+function buildAnnoEl(a){
+  const el = document.createElement("div");
+  el.className = "anno" + (a.cover ? " cover" : "") + (a.id === TE.selectedId ? " selected" : "");
+  el.dataset.id = a.id;
+  el.textContent = a.text || " ";
+  el.style.left = (a.x * TE.scale) + "px";
+  el.style.top = (a.y * TE.scale) + "px";
+  el.style.fontSize = (a.size * TE.scale) + "px";
+  el.style.color = a.color;
+  return el;
+}
+
+$("teAddText").onclick = () => {
+  const a = { id: TE.nextAnnoId++, x: 30, y: 30, text: "New text", size: 14, color: "#000000", cover: false };
+  TE.annosByPage[TE.curPage].push(a);
+  selectAnno(a.id);
+  $("teAnnoLayer").appendChild(buildAnnoEl(a));
+  syncPropsFromAnno(a);
+};
+
+function selectAnno(id){
+  TE.selectedId = id;
+  document.querySelectorAll("#teAnnoLayer .anno").forEach(e => {
+    e.classList.toggle("selected", Number(e.dataset.id) === id);
+  });
+  const a = curAnno();
+  if (a){
+    $("tePropsBox").hidden = false;
+    syncPropsFromAnno(a);
+  } else {
+    $("tePropsBox").hidden = true;
+  }
+}
+function curAnno(){
+  return TE.annosByPage[TE.curPage].find(a => a.id === TE.selectedId) || null;
+}
+function syncPropsFromAnno(a){
+  $("teContent").value = a.text;
+  $("teSize").value = a.size;
+  $("teColor").value = a.color;
+  $("teCover").checked = a.cover;
+}
+
+$("teDelText").onclick = () => {
+  if (!TE.selectedId){ setStatus($("teStatus"), "請先選取一個文字方塊。", "err"); return; }
+  const arr = TE.annosByPage[TE.curPage];
+  const i = arr.findIndex(a => a.id === TE.selectedId);
+  if (i >= 0) arr.splice(i, 1);
+  TE.selectedId = null;
+  renderTePage();
+  setStatus($("teStatus"), "已刪除。", "ok");
+};
+
+$("tePrev").onclick = async () => { if (TE.curPage > 0){ TE.curPage--; TE.selectedId = null; await renderTePage(); } };
+$("teNext").onclick = async () => { if (TE.curPage < TE.pages.length - 1){ TE.curPage++; TE.selectedId = null; await renderTePage(); } };
+
+// 屬性面板 → 即時更新
+$("teContent").addEventListener("input", () => { const a = curAnno(); if (a){ a.text = $("teContent").value; updateAnnoEl(a); } });
+$("teSize").addEventListener("input", () => {
+  const a = curAnno(); if (!a) return;
+  const v = parseInt($("teSize").value); if (v > 0){ a.size = v; updateAnnoEl(a); }
+});
+$("teColor").addEventListener("input", () => { const a = curAnno(); if (a){ a.color = $("teColor").value; updateAnnoEl(a); } });
+$("teCover").addEventListener("change", () => {
+  const a = curAnno(); if (a){ a.cover = $("teCover").checked; updateAnnoEl(a); }
+});
+function updateAnnoEl(a){
+  const el = document.querySelector(`#teAnnoLayer .anno[data-id="${a.id}"]`);
+  if (!el) return;
+  el.textContent = a.text || " ";
+  el.style.left = (a.x * TE.scale) + "px";
+  el.style.top = (a.y * TE.scale) + "px";
+  el.style.fontSize = (a.size * TE.scale) + "px";
+  el.style.color = a.color;
+  el.classList.toggle("cover", a.cover);
+}
+
+// 拖曳文字方塊
+let dragInfo = null;
+$("teAnnoLayer").addEventListener("mousedown", e => {
+  const el = e.target.closest(".anno");
+  if (!el){
+    selectAnno(null);
+    return;
+  }
+  const id = Number(el.dataset.id);
+  selectAnno(id);
+  const a = curAnno();
+  if (!a) return;
+  dragInfo = { el, startX: e.clientX, startY: e.clientY, origX: a.x, origY: a.y };
+  e.preventDefault();
+});
+window.addEventListener("mousemove", e => {
+  if (!dragInfo) return;
+  const dx = (e.clientX - dragInfo.startX) / TE.scale;
+  const dy = (e.clientY - dragInfo.startY) / TE.scale;
+  const a = curAnno();
+  if (!a) return;
+  a.x = Math.max(0, Math.min(dragInfo.origX + dx, TE.pages[TE.curPage].width));
+  a.y = Math.max(0, Math.min(dragInfo.origY + dy, TE.pages[TE.curPage].height));
+  dragInfo.el.style.left = (a.x * TE.scale) + "px";
+  dragInfo.el.style.top = (a.y * TE.scale) + "px";
+});
+window.addEventListener("mouseup", () => { dragInfo = null; });
+
+// 輸出 PDF：用 pdf-lib 喺每頁印文字
+$("teExport").onclick = async () => {
+  const st = $("teStatus");
+  // 先檢查有冇非拉丁字元（pdf-lib 內建字型唔支援中文等）
+  const bad = [];
+  TE.annosByPage.forEach((arr, pi) => arr.forEach(a => {
+    if (a.text && /[^\x00-\x7F]/.test(a.text)) bad.push(`第 ${pi+1} 頁「${a.text.slice(0,12)}…」`);
+  }));
+  if (bad.length){
+    setStatus(st, "❌ pdf-lib 內建字型只支援英文/數字/符號。請將以下文字改成拉丁字元：" + bad.join("、"), "err");
+    return;
+  }
+  setStatus(st, "⏳ 輸出中…", "busy");
+  try {
+    const out = await PDFLib.PDFDocument.create();
+    const font = await out.embedFont(PDFLib.StandardFonts.Helvetica);
+    const pages = await out.copyPages(TE.pdfLibDoc, TE.pages.map((_, i) => i));
+    for (let i = 0; i < pages.length; i++){
+      const pg = pages[i];
+      out.addPage(pg);
+      const { height } = pg.getSize();
+      for (const a of TE.annosByPage[i]){
+        const py = height - a.y - a.size;  // PDF 座標由底起，DOM 由頂起
+        if (a.cover){
+          // 量度文字寬度做白底
+          const w = font.widthOfTextAtSize(a.text || " ", a.size);
+          pg.drawRectangle({ x: a.x - 1, y: py - 1, width: w + 2, height: a.size * 1.25 + 2, color: PDFLib.rgb(1,1,1) });
+        }
+        pg.drawText(a.text, {
+          x: a.x, y: py,
+          size: a.size,
+          font,
+          color: hexToRgb(a.color)
+        });
+      }
+    }
+    const bytes = await out.save();
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }), "Edited.pdf");
+    setStatus(st, "✅ 搞掂！已下載 Edited.pdf", "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 輸出失敗：" + (err.message || err), "err");
+  }
+};
+
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return PDFLib.rgb(0,0,0);
+  const n = parseInt(m[1], 16);
+  return PDFLib.rgb(((n >> 16) & 255)/255, ((n >> 8) & 255)/255, (n & 255)/255);
 }
 </script>
 </body>
