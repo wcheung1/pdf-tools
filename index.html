@@ -606,6 +606,25 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="note">OpenCC 原始嘅 s2t 表用緊舊異體字（<code>为→爲</code>、<code>里→裏</code>），要再過一層港／台字形表先合乎現代標準。香港：<code>为→為</code>、<code>里→裏</code>；台灣：<code>为→為</code>、<code>里→裡</code>。</div>
 
+    <label class="field-label" style="margin-top:14px">字型處理</label>
+    <div class="seg" id="s2tRedrawSeg">
+      <button type="button" class="active" data-redraw="changed">✏️ 只換需要改嘅字</button>
+      <button type="button" data-redraw="all">🅰️ 全部漢字統一字型</button>
+    </div>
+    <div class="note"><b>只換需要改嘅字</b>＝最大程度保留原檔（未改嘅字連 byte 都一樣），但同一行會出現兩種字體。<b>統一字型</b>＝連唔使改嘅漢字都用新字型重繪，成頁字體一致、睇落乾淨，代價係原本嘅楷體／宋體美術效果會冇咗（拼音、數字、英文一律唔郁）。想兩樣都要嘅話，就上載對應款式嘅字型（楷配楷、宋配明），再喺下面逐隻指定。</div>
+
+    <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer" id="s2tPunctRow" hidden>
+      <input type="checkbox" id="s2tPunct">
+      <span style="font-weight:600;font-size:.92rem">連全形標點（，。？「」）一齊統一 — 有機會令標點位置微微偏移</span>
+    </label>
+
+    <label class="field-label" style="margin-top:14px">詞組優先表（每行一個 <code>簡詞=繁詞</code>，優先過內建詞庫）</label>
+    <textarea id="s2tPhrases" rows="4" placeholder="复习=溫習&#10;面条=麵條&#10;信息=資訊"></textarea>
+    <div class="export-row" style="margin-top:8px">
+      <button class="btn secondary" id="s2tSampleList" style="padding:6px 12px;font-size:.84rem">📋 載入常用範例</button>
+      <span style="font-size:.82rem;color:var(--ink-soft);align-self:center">內建已經有 OpenCC 嘅 9,726 條詞組，呢度淨係用嚟補漏或者改港式用詞。前後字數要一樣。</span>
+    </div>
+
     <label style="display:flex;align-items:center;gap:8px;margin:12px 0;cursor:pointer">
       <input type="checkbox" id="s2tSubset" checked>
       <span style="font-weight:600;font-size:.92rem">字型子集化（只嵌入用到嘅字，大幅減細檔案；OTF 會自動略過）</span>
@@ -2453,7 +2472,7 @@ const S2 = {
   fonts: [], nextFontId: 1,
   assign: {}, analysis: null,
   outBytes: null, outDoc: null,
-  variant: "hk", libsReady: false
+  variant: "hk", redraw: "changed", libsReady: false, gb1Tried: false
 };
 
 const S2T_FONTKIT_URLS = ["lib/fontkit.umd.min.js", FONTKIT_URL];
@@ -2508,13 +2527,23 @@ async function s2tAnalyze(){
     const r = await window.S2T.convert(S2.buf.slice(0), {
       dryRun: true,
       variant: S2.variant,
+      redraw: S2.redraw,
+      redrawPunct: $("s2tPunct").checked,
       overrides: s2tParseOverrides(),
+      phrases: s2tParsePhrases(),
       onProgress: (m) => setStatus(st, "⏳ " + m, "busy")
     });
+    // 有字型冇 ToUnicode 但係 Adobe-GB1 排序 → 載入 CID 對照表再試多次
+    if (r.stats.needGB1 && !window.S2T_CID_GB1 && !S2.gb1Tried){
+      S2.gb1Tried = true;
+      setStatus(st, "⏳ 有字型冇 ToUnicode 對照表，載入 Adobe-GB1 CID 表再試…", "busy");
+      try { await loadScript("lib/s2t-cid-gb1.js"); return await s2tAnalyze(); } catch(e){ console.warn(e); }
+    }
     S2.analysis = r.stats;
     s2tRenderReport();
     $("s2tReportBox").hidden = false;
-    setStatus(st, `✅ 分析完成：全書 ${r.stats.totalCJK} 個漢字，其中 ${r.stats.changed} 個需要轉換。`, "ok");
+    setStatus(st, `✅ 分析完成：全書 ${r.stats.totalCJK} 個漢字，其中 ${r.stats.changed} 個需要轉換` +
+      (S2.redraw === "all" ? `，另外 ${r.stats.redrawn} 個會重繪統一字型` : "") + "。", "ok");
   } catch (err){
     console.error(err);
     setStatus(st, "❌ 分析失敗：" + (err.message || err), "err");
@@ -2530,6 +2559,39 @@ $("s2tVariantSeg").addEventListener("click", e => {
   S2.variant = b.dataset.variant;
   if (S2.buf) s2tAnalyze();
 });
+
+/* ---------- 字型統一模式 ---------- */
+$("s2tRedrawSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("s2tRedrawSeg").children].forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  S2.redraw = b.dataset.redraw;
+  $("s2tPunctRow").hidden = S2.redraw !== "all";
+  if (S2.buf) s2tAnalyze();
+});
+
+/* ---------- 詞組優先表 ---------- */
+const S2T_SAMPLE_PHRASES = [
+  "# 港式用詞（改完前後字數要一樣）",
+  "复习=溫習", "面条=麵條", "信息=資訊", "视频=影片", "软件=軟件",
+  "打印=列印", "自行车=單車", "冰箱=雪櫃", "公交=巴士",
+  "# 內建詞庫已處理嘅例子（唔使再寫，淨係示範格式）",
+  "这里=這裏", "重复=重複", "答复=答覆", "准备=準備", "历史=歷史"
+].join("\n");
+$("s2tSampleList").onclick = () => {
+  const ta = $("s2tPhrases");
+  ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + S2T_SAMPLE_PHRASES;
+};
+function s2tParsePhrases(){
+  const m = new Map();
+  for (const line of ($("s2tPhrases").value || "").split(/\r?\n/)){
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const p = t.split(/[=＝:：]+/).map(x => x.trim()).filter(Boolean);
+    if (p.length >= 2 && [...p[0]].length === [...p[1]].length && [...p[0]].length >= 2) m.set(p[0], p[1]);
+  }
+  return m;
+}
 
 /* ---------- 字型管理 ---------- */
 function s2tWireFontDrop(){
@@ -2612,9 +2674,14 @@ function s2tRenderReport(){
     `<div><b style="font-size:1.4rem;color:var(--accent)">${s.changed}</b><br><span style="color:var(--ink-soft)">個需要轉換</span></div>` +
     `<div><b style="font-size:1.4rem;color:var(--accent)">${s.neededChars.size}</b><br><span style="color:var(--ink-soft)">種繁體字形</span></div>` +
     `<div><b style="font-size:1.4rem;color:var(--accent)">${s.pairs.size}</b><br><span style="color:var(--ink-soft)">種對照</span></div>` +
+    (S2.redraw === "all" ? `<div><b style="font-size:1.4rem;color:var(--accent)">${s.redrawn}</b><br><span style="color:var(--ink-soft)">個重繪統一</span></div>` : "") +
     `</div>`;
 
   let warn = "";
+  if (s.recovered && s.recovered.size){
+    warn += `<div class="note"><b>有 ${s.recovered.size} 隻字型本身冇 ToUnicode 對照表，已經自動救返：</b>` +
+      [...s.recovered].map(([f, how]) => `<code>${escapeHtml(f)}</code>（${escapeHtml(how)}）`).join("、") + `</div>`;
+  }
   if (s.missingToUni.size){
     warn += `<div class="note warn"><b>有 ${s.missingToUni.size} 隻字型冇 ToUnicode 對照表</b>，讀唔出係邊個字，呢啲字會保持原樣：<code>${[...s.missingToUni].map(escapeHtml).join("、")}</code>。（多數係封面／美術字。）</div>`;
   }
@@ -2680,7 +2747,10 @@ $("s2tGo").onclick = async () => {
       fontAssign: S2.assign,
       defaultFontId: S2.fonts[0].id,
       overrides: s2tParseOverrides(),
+      phrases: s2tParsePhrases(),
       variant: S2.variant,
+      redraw: S2.redraw,
+      redrawPunct: $("s2tPunct").checked,
       subset: $("s2tSubset").checked,
       onProgress: (m, p) => setStatus(st, `⏳ ${m}`, "busy")
     });
@@ -2688,7 +2758,9 @@ $("s2tGo").onclick = async () => {
     downloadBlob(new Blob([r.bytes], { type: "application/pdf" }),
                  baseName(S2.name) + "_繁體.pdf");
 
-    let msg = `✅ 搞掂！轉咗 ${r.stats.changed} 個字，共 ${r.stats.pagesTouched} 版有改動，用時 ${((Date.now()-t0)/1000).toFixed(1)} 秒。`;
+    let msg = `✅ 搞掂！轉咗 ${r.stats.changed} 個字` +
+      (r.stats.redrawn ? `、重繪統一 ${r.stats.redrawn} 個` : "") +
+      `，共 ${r.stats.pagesTouched} 版有改動，用時 ${((Date.now()-t0)/1000).toFixed(1)} 秒。`;
     if (!r.stats.subsetUsed) msg += " ⚠️ 用咗完整嵌入（OTF 或已關子集化），檔案會較大。";
     if (r.stats.noGlyph.size) msg += ` ⚠️ 有 ${r.stats.noGlyph.size} 個字喺你隻字型度搵唔到字形，已保持原樣。`;
     setStatus(st, msg, "ok");
