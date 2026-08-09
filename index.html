@@ -242,6 +242,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-word" role="tab">📄 PDF ⇄ Word</button>
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
+      <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
     </nav>
   </div>
 </header>
@@ -570,6 +571,86 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="status" id="trStatus"></div>
   </div>
+</section>
+
+<!-- ============ 9. 簡轉繁 ============ -->
+<section id="panel-s2t" class="panel">
+
+  <div class="box">
+    <h2>簡體 → 繁體（就地轉換）</h2>
+    <p class="desc">直接改寫 PDF 內文，<b>只換走需要轉換嘅字</b>：圖片、線條、顏色、版面、拼音、以及原本就唔使改嘅字，全部逐 byte 原樣保留，字位亦唔會走。轉咗嘅字會用你提供嘅繁體字型重新繪製。</p>
+    <div class="dropzone" id="s2tDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="s2tFileInput" accept="application/pdf">
+    <ul class="file-list" id="s2tFileList"></ul>
+    <div class="status" id="s2tLoadStatus"></div>
+  </div>
+
+  <div class="box" id="s2tFontBox" hidden>
+    <h2>① 繁體字型</h2>
+    <p class="desc">原 PDF 嵌入嘅係<b>簡體字型嘅子集</b>，入面根本冇繁體字形，所以轉咗嘅字一定要用另一隻字型畫。可以上載多隻，再逐隻原字型指定用邊隻（宋配明體、黑配黑體、楷配楷體，效果最自然）。</p>
+    <div class="dropzone" id="s2tFontDrop" tabindex="0"><strong>拖放字型檔到呢度</strong><br>支援 TTF / OTF（可多選）</div>
+    <input type="file" id="s2tFontInput" accept=".ttf,.otf,.TTF,.OTF" multiple>
+    <ul class="file-list" id="s2tFontList"></ul>
+    <div class="note"><b>建議用 TTF。</b>fontkit 對 OTF（CFF 輪廓）嘅子集化有 bug 修唔到，只可以完整嵌入，出嚟嘅檔案會大好多（例如 +5MB）。TTF 經修正後可以正常子集化，通常只加幾百 KB。</div>
+    <div class="status" id="s2tFontStatus"></div>
+  </div>
+
+  <div class="box" id="s2tOptBox" hidden>
+    <h2>② 轉換選項</h2>
+
+    <label class="field-label">標準字形</label>
+    <div class="seg" id="s2tVariantSeg">
+      <button type="button" class="active" data-variant="hk">🇭🇰 香港標準</button>
+      <button type="button" data-variant="tw">🇹🇼 台灣標準</button>
+      <button type="button" data-variant="raw">OpenCC 原樣</button>
+    </div>
+    <div class="note">OpenCC 原始嘅 s2t 表用緊舊異體字（<code>为→爲</code>、<code>里→裏</code>），要再過一層港／台字形表先合乎現代標準。香港：<code>为→為</code>、<code>里→裏</code>；台灣：<code>为→為</code>、<code>里→裡</code>。</div>
+
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0;cursor:pointer">
+      <input type="checkbox" id="s2tSubset" checked>
+      <span style="font-weight:600;font-size:.92rem">字型子集化（只嵌入用到嘅字，大幅減細檔案；OTF 會自動略過）</span>
+    </label>
+
+    <label class="field-label">人手指定（每行一個 <code>簡=繁</code>，會蓋過自動轉換）</label>
+    <textarea id="s2tOverrides" rows="3" placeholder="周=周&#10;干=乾&#10;发=髮"></textarea>
+    <div class="note">一個簡體字對應多個繁體字（发→發/髮、干→乾/幹、里→裡/裏）要靠上下文判斷，詞組表處理到大部分但一定有走漏。喺下面嘅對照清單㩒一下任何一項，就會自動加落呢度畀你改。</div>
+
+    <div class="export-row">
+      <button class="btn secondary" id="s2tReanalyze">🔍 重新分析</button>
+      <button class="btn big" style="width:auto" id="s2tGo">繁 轉換並下載</button>
+    </div>
+    <div class="status" id="s2tStatus"></div>
+  </div>
+
+  <div class="box" id="s2tReportBox" hidden>
+    <h2>③ 分析報告</h2>
+    <div id="s2tSummary"></div>
+    <div id="s2tWarnings"></div>
+
+    <label class="field-label" style="margin-top:14px">原 PDF 用到嘅字型 → 用邊隻繁體字型代替</label>
+    <div id="s2tFamilies" style="overflow-x:auto"></div>
+
+    <label class="field-label" style="margin-top:14px">會轉換嘅字（㩒一下加入「人手指定」）</label>
+    <div id="s2tPairs" style="display:flex;flex-wrap:wrap;gap:6px;max-height:260px;overflow-y:auto;padding:4px 2px"></div>
+  </div>
+
+  <div class="box" id="s2tPreviewBox" hidden>
+    <h2>④ 前後對比</h2>
+    <label style="font-size:.86rem;color:var(--ink-soft);display:inline-flex;align-items:center;gap:6px;margin-bottom:10px">預覽頁面
+      <select id="s2tPreviewPage" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:.86rem;background:#FCFDFB"></select>
+    </label>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px">
+        <div style="font-size:.82rem;color:var(--ink-soft);margin-bottom:4px">原本</div>
+        <canvas id="s2tCanvasA" style="width:100%;height:auto;box-shadow:var(--shadow);background:#fff;border-radius:4px"></canvas>
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div style="font-size:.82rem;color:var(--ink-soft);margin-bottom:4px">轉換後</div>
+        <canvas id="s2tCanvasB" style="width:100%;height:auto;box-shadow:var(--shadow);background:#fff;border-radius:4px"></canvas>
+      </div>
+    </div>
+  </div>
+
 </section>
 
 </main>
@@ -2361,6 +2442,293 @@ $("trGo").onclick = async () => {
     setStatus(st, "❌ 裁切失敗：" + (err.message || err), "err");
   }
 };
+
+/* =====================================================
+   9) 簡轉繁（就地改寫 content stream）
+   引擎喺 lib/s2t-core.js，對照表喺 lib/s2t-dict.js，
+   兩個都係㩒入呢個分頁先至 lazy load，唔會拖慢首頁。
+===================================================== */
+const S2 = {
+  buf: null, name: "", pdfjsDoc: null,
+  fonts: [], nextFontId: 1,
+  assign: {}, analysis: null,
+  outBytes: null, outDoc: null,
+  variant: "hk", libsReady: false
+};
+
+const S2T_FONTKIT_URLS = ["lib/fontkit.umd.min.js", FONTKIT_URL];
+
+async function s2tEnsureLibs(st){
+  if (S2.libsReady) return;
+  setStatus(st, "⏳ 載入轉換引擎同對照表…", "busy");
+  if (!window.S2T_DICT) await loadScript("lib/s2t-dict.js");
+  if (!window.S2T)      await loadScript("lib/s2t-core.js");
+  if (!window.fontkit){
+    for (const u of S2T_FONTKIT_URLS){
+      try { await loadScript(u); if (window.fontkit) break; } catch(e){ /* 試下一個 */ }
+    }
+  }
+  if (!window.S2T_DICT) throw new Error("載入唔到 lib/s2t-dict.js（簡繁對照表）");
+  if (!window.S2T)      throw new Error("載入唔到 lib/s2t-core.js（轉換引擎）");
+  if (!window.fontkit)  throw new Error("載入唔到 fontkit（可以放一份 fontkit.umd.min.js 落 lib/ 資料夾離線用）");
+  S2.libsReady = true;
+}
+
+/* ---------- 上載 PDF ---------- */
+wireDropzone($("s2tDrop"), $("s2tFileInput"), async files => {
+  const st = $("s2tLoadStatus");
+  const file = files[0];
+  try {
+    await s2tEnsureLibs(st);
+    setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
+    S2.buf = await file.arrayBuffer();
+    S2.name = file.name;
+    S2.outBytes = null;
+    S2.pdfjsDoc = await pdfjsLib.getDocument({ data: S2.buf.slice(0) }).promise;
+    $("s2tFileList").innerHTML =
+      `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
+      `<span class="pages">共 ${S2.pdfjsDoc.numPages} 頁</span></li>`;
+    $("s2tFontBox").hidden = false;
+    $("s2tOptBox").hidden = false;
+    $("s2tPreviewBox").hidden = true;
+    setStatus(st, "✅ 已載入，分析緊…", "ok");
+    await s2tAnalyze();
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  }
+});
+
+/* ---------- 分析 ---------- */
+async function s2tAnalyze(){
+  const st = $("s2tStatus");
+  if (!S2.buf) return;
+  try {
+    setStatus(st, "⏳ 分析緊…", "busy");
+    const r = await window.S2T.convert(S2.buf.slice(0), {
+      dryRun: true,
+      variant: S2.variant,
+      overrides: s2tParseOverrides(),
+      onProgress: (m) => setStatus(st, "⏳ " + m, "busy")
+    });
+    S2.analysis = r.stats;
+    s2tRenderReport();
+    $("s2tReportBox").hidden = false;
+    setStatus(st, `✅ 分析完成：全書 ${r.stats.totalCJK} 個漢字，其中 ${r.stats.changed} 個需要轉換。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 分析失敗：" + (err.message || err), "err");
+  }
+}
+$("s2tReanalyze").onclick = () => s2tAnalyze();
+
+/* ---------- 標準字形切換 ---------- */
+$("s2tVariantSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("s2tVariantSeg").children].forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  S2.variant = b.dataset.variant;
+  if (S2.buf) s2tAnalyze();
+});
+
+/* ---------- 字型管理 ---------- */
+function s2tWireFontDrop(){
+  const zone = $("s2tFontDrop"), input = $("s2tFontInput");
+  const take = files => s2tAddFonts([...files].filter(f => /\.(ttf|otf)$/i.test(f.name)));
+  zone.addEventListener("click", () => input.click());
+  zone.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") input.click(); });
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+  zone.addEventListener("drop", e => { e.preventDefault(); zone.classList.remove("dragover"); take(e.dataTransfer.files); });
+  input.addEventListener("change", () => { if (input.files.length) take(input.files); input.value = ""; });
+}
+s2tWireFontDrop();
+
+async function s2tAddFonts(files){
+  const st = $("s2tFontStatus");
+  for (const f of files){
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const flav = window.S2T ? window.S2T.fontFlavour(bytes) : "unknown";
+      S2.fonts.push({ id: String(S2.nextFontId++), name: f.name, bytes, flavour: flav, size: bytes.length });
+    } catch (e){ console.warn(e); }
+  }
+  s2tRenderFontList();
+  s2tRenderReport();
+  setStatus(st, `✅ 已加入 ${S2.fonts.length} 隻字型。`, "ok");
+}
+
+function s2tRenderFontList(){
+  const ul = $("s2tFontList");
+  ul.innerHTML = "";
+  S2.fonts.forEach(f => {
+    const tag = f.flavour === "ttf"
+      ? `<span class="lock-tag" style="background:var(--accent-soft);color:var(--accent)">TTF · 可子集化</span>`
+      : `<span class="lock-tag">${f.flavour.toUpperCase()} · 需完整嵌入</span>`;
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="name">🅰️ ${escapeHtml(f.name)}</span>${tag}` +
+      `<span class="pages">${(f.size/1048576).toFixed(1)} MB</span>`;
+    const del = document.createElement("button");
+    del.className = "btn secondary";
+    del.style.cssText = "padding:2px 8px;font-size:.78rem";
+    del.textContent = "移除";
+    del.onclick = () => {
+      S2.fonts = S2.fonts.filter(x => x.id !== f.id);
+      Object.keys(S2.assign).forEach(k => { if (S2.assign[k] === f.id) delete S2.assign[k]; });
+      s2tRenderFontList(); s2tRenderReport();
+    };
+    li.appendChild(del);
+    ul.appendChild(li);
+  });
+}
+
+/* ---------- 人手指定 ---------- */
+function s2tParseOverrides(){
+  const m = new Map();
+  for (const line of ($("s2tOverrides").value || "").split(/\r?\n/)){
+    const t = line.trim();
+    if (!t) continue;
+    const p = t.split(/[=＝:：\s]+/).filter(Boolean);
+    if (p.length >= 2 && [...p[0]].length === 1 && [...p[1]].length === 1) m.set(p[0], p[1]);
+  }
+  return m;
+}
+function s2tAddOverride(from, to){
+  const ta = $("s2tOverrides");
+  const lines = ta.value.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith(from));
+  lines.push(from + "=" + to);
+  ta.value = lines.join("\n");
+  ta.focus();
+}
+
+/* ---------- 報告 ---------- */
+function s2tRenderReport(){
+  const s = S2.analysis;
+  if (!s) return;
+
+  $("s2tSummary").innerHTML =
+    `<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:.92rem">` +
+    `<div><b style="font-size:1.4rem;color:var(--accent)">${s.totalCJK}</b><br><span style="color:var(--ink-soft)">個漢字</span></div>` +
+    `<div><b style="font-size:1.4rem;color:var(--accent)">${s.changed}</b><br><span style="color:var(--ink-soft)">個需要轉換</span></div>` +
+    `<div><b style="font-size:1.4rem;color:var(--accent)">${s.neededChars.size}</b><br><span style="color:var(--ink-soft)">種繁體字形</span></div>` +
+    `<div><b style="font-size:1.4rem;color:var(--accent)">${s.pairs.size}</b><br><span style="color:var(--ink-soft)">種對照</span></div>` +
+    `</div>`;
+
+  let warn = "";
+  if (s.missingToUni.size){
+    warn += `<div class="note warn"><b>有 ${s.missingToUni.size} 隻字型冇 ToUnicode 對照表</b>，讀唔出係邊個字，呢啲字會保持原樣：<code>${[...s.missingToUni].map(escapeHtml).join("、")}</code>。（多數係封面／美術字。）</div>`;
+  }
+  if (!S2.fonts.length){
+    warn += `<div class="note warn">仲未上載繁體字型 —— 上面①先加一隻，先至轉換到。</div>`;
+  }
+  $("s2tWarnings").innerHTML = warn;
+
+  // 字型對照表
+  const fams = [...s.families].sort((a,b) => b[1].changed - a[1].changed);
+  let html = `<table style="border-collapse:collapse;font-size:.86rem;min-width:520px">
+    <tr style="text-align:left;color:var(--ink-soft)">
+      <th style="padding:6px 10px 6px 0">原字型</th>
+      <th style="padding:6px 10px">漢字</th>
+      <th style="padding:6px 10px">需轉</th>
+      <th style="padding:6px 10px">替換字型</th></tr>`;
+  for (const [fam, v] of fams){
+    const opts = S2.fonts.map(f =>
+      `<option value="${f.id}"${S2.assign[fam] === f.id ? " selected" : ""}>${escapeHtml(f.name)}</option>`).join("");
+    html += `<tr style="border-top:1px solid var(--line)">
+      <td style="padding:6px 10px 6px 0"><code>${escapeHtml(fam)}</code></td>
+      <td style="padding:6px 10px">${v.total}</td>
+      <td style="padding:6px 10px"><b>${v.changed}</b></td>
+      <td style="padding:6px 10px">${S2.fonts.length
+        ? `<select data-fam="${escapeHtml(fam)}" class="s2t-assign" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#FCFDFB;font-size:.84rem">${opts}</select>`
+        : `<span style="color:var(--ink-soft)">未有字型</span>`}</td></tr>`;
+  }
+  html += "</table>";
+  $("s2tFamilies").innerHTML = html;
+  document.querySelectorAll(".s2t-assign").forEach(sel => {
+    sel.onchange = () => { S2.assign[sel.dataset.fam] = sel.value; };
+  });
+
+  // 對照清單
+  const pairs = [...s.pairs].sort((a,b) => b[1] - a[1]);
+  const D = window.S2T_DICT || {};
+  $("s2tPairs").innerHTML = pairs.map(([k, n]) => {
+    const [from, to] = k.split("→");
+    const alts = (D.alt && D.alt[from]) || [];
+    const title = alts.length > 1 ? `「${from}」可以係：${alts.join("、")}` : "";
+    const many = alts.length > 1;
+    return `<button type="button" class="s2t-pair" data-from="${from}" data-to="${to}" title="${escapeHtml(title)}"
+      style="border:1px solid ${many ? "var(--warn)" : "var(--line)"};background:${many ? "#FCF1E8" : "#fff"};
+             border-radius:99px;padding:3px 10px;font-size:.86rem;cursor:pointer;color:var(--ink)">
+      ${from}→${to} <span style="color:var(--ink-soft);font-size:.78rem">×${n}</span></button>`;
+  }).join("");
+  document.querySelectorAll(".s2t-pair").forEach(b => {
+    b.onclick = () => s2tAddOverride(b.dataset.from, b.dataset.to);
+  });
+}
+
+/* ---------- 轉換 ---------- */
+$("s2tGo").onclick = async () => {
+  const st = $("s2tStatus");
+  if (!S2.buf) { setStatus(st, "❌ 未載入 PDF。", "err"); return; }
+  if (!S2.fonts.length) { setStatus(st, "❌ 請先喺上面①上載至少一隻繁體字型。", "err"); return; }
+  try {
+    await s2tEnsureLibs(st);
+    setStatus(st, "⏳ 轉換中…", "busy");
+    const t0 = Date.now();
+    const r = await window.S2T.convert(S2.buf.slice(0), {
+      fonts: S2.fonts.map(f => ({ id: f.id, name: f.name, bytes: f.bytes })),
+      fontAssign: S2.assign,
+      defaultFontId: S2.fonts[0].id,
+      overrides: s2tParseOverrides(),
+      variant: S2.variant,
+      subset: $("s2tSubset").checked,
+      onProgress: (m, p) => setStatus(st, `⏳ ${m}`, "busy")
+    });
+    S2.outBytes = r.bytes;
+    downloadBlob(new Blob([r.bytes], { type: "application/pdf" }),
+                 baseName(S2.name) + "_繁體.pdf");
+
+    let msg = `✅ 搞掂！轉咗 ${r.stats.changed} 個字，共 ${r.stats.pagesTouched} 版有改動，用時 ${((Date.now()-t0)/1000).toFixed(1)} 秒。`;
+    if (!r.stats.subsetUsed) msg += " ⚠️ 用咗完整嵌入（OTF 或已關子集化），檔案會較大。";
+    if (r.stats.noGlyph.size) msg += ` ⚠️ 有 ${r.stats.noGlyph.size} 個字喺你隻字型度搵唔到字形，已保持原樣。`;
+    setStatus(st, msg, "ok");
+
+    $("s2tPreviewBox").hidden = false;
+    await s2tSetupPreview();
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 轉換失敗：" + (err.message || err), "err");
+  }
+};
+
+/* ---------- 前後對比 ---------- */
+async function s2tSetupPreview(){
+  if (!S2.outBytes) return;
+  S2.outDoc = await pdfjsLib.getDocument({ data: S2.outBytes.slice(0) }).promise;
+  const sel = $("s2tPreviewPage");
+  sel.innerHTML = "";
+  for (let i = 1; i <= S2.pdfjsDoc.numPages; i++){
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = `第 ${i} 頁`;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => s2tRenderPreview(parseInt(sel.value, 10));
+  await s2tRenderPreview(1);
+}
+
+async function s2tRenderPreview(pageNo){
+  const draw = async (doc, canvas) => {
+    const page = await doc.getPage(pageNo);
+    const vp = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, 900 / vp.width);
+    const v2 = page.getViewport({ scale });
+    canvas.width = Math.floor(v2.width);
+    canvas.height = Math.floor(v2.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: v2 }).promise;
+  };
+  await draw(S2.pdfjsDoc, $("s2tCanvasA"));
+  await draw(S2.outDoc, $("s2tCanvasB"));
+}
 </script>
 </body>
 </html>
