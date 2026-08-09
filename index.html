@@ -646,7 +646,11 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div id="s2tSummary"></div>
     <div id="s2tWarnings"></div>
 
-    <label class="field-label" style="margin-top:14px">原 PDF 用到嘅字型 → 用邊隻繁體字型代替</label>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">
+      <label class="field-label" style="margin:0">原 PDF 用到嘅字型 → 用邊隻繁體字型代替</label>
+      <button class="btn secondary" id="s2tAutoMatch" style="padding:4px 10px;font-size:.8rem">🎯 按款式自動配對</button>
+    </div>
+    <div class="note">「樣本」欄係由你份 PDF 度直接擷取嘅原圖，睇一眼就知邊隻係楷、邊隻係宋、邊隻係黑。字型檔名帶住 <code>Kai／Serif／Sans／楷／宋／黑</code> 呢類字眼嘅話，㩒「自動配對」就會自己填。</div>
     <div id="s2tFamilies" style="overflow-x:auto"></div>
 
     <label class="field-label" style="margin-top:14px">會轉換嘅字（㩒一下加入「人手指定」）</label>
@@ -2692,28 +2696,35 @@ function s2tRenderReport(){
 
   // 字型對照表
   const fams = [...s.families].sort((a,b) => b[1].changed - a[1].changed);
-  let html = `<table style="border-collapse:collapse;font-size:.86rem;min-width:520px">
+  S2.famOrder = fams.map(f => f[0]);
+  let html = `<table style="border-collapse:collapse;font-size:.86rem;min-width:600px">
     <tr style="text-align:left;color:var(--ink-soft)">
       <th style="padding:6px 10px 6px 0">原字型</th>
+      <th style="padding:6px 10px">樣本（原檔擷圖）</th>
+      <th style="padding:6px 10px">估計</th>
       <th style="padding:6px 10px">漢字</th>
       <th style="padding:6px 10px">需轉</th>
       <th style="padding:6px 10px">替換字型</th></tr>`;
-  for (const [fam, v] of fams){
+  fams.forEach(([fam, v], idx) => {
     const opts = S2.fonts.map(f =>
       `<option value="${f.id}"${S2.assign[fam] === f.id ? " selected" : ""}>${escapeHtml(f.name)}</option>`).join("");
+    const guess = window.S2T.guessStyle(fam);
     html += `<tr style="border-top:1px solid var(--line)">
       <td style="padding:6px 10px 6px 0"><code>${escapeHtml(fam)}</code></td>
+      <td style="padding:4px 10px"><canvas data-sample="${idx}" style="height:30px;width:auto;background:#fff;border:1px solid var(--line);border-radius:3px"></canvas></td>
+      <td style="padding:6px 10px;color:${guess ? "var(--accent)" : "var(--ink-soft)"}">${guess || "睇樣本"}</td>
       <td style="padding:6px 10px">${v.total}</td>
       <td style="padding:6px 10px"><b>${v.changed}</b></td>
       <td style="padding:6px 10px">${S2.fonts.length
-        ? `<select data-fam="${escapeHtml(fam)}" class="s2t-assign" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#FCFDFB;font-size:.84rem">${opts}</select>`
+        ? `<select data-famidx="${idx}" class="s2t-assign" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#FCFDFB;font-size:.84rem">${opts}</select>`
         : `<span style="color:var(--ink-soft)">未有字型</span>`}</td></tr>`;
-  }
+  });
   html += "</table>";
   $("s2tFamilies").innerHTML = html;
   document.querySelectorAll(".s2t-assign").forEach(sel => {
-    sel.onchange = () => { S2.assign[sel.dataset.fam] = sel.value; };
+    sel.onchange = () => { S2.assign[S2.famOrder[+sel.dataset.famidx]] = sel.value; };
   });
+  s2tRenderSamples();
 
   // 對照清單
   const pairs = [...s.pairs].sort((a,b) => b[1] - a[1]);
@@ -2732,6 +2743,56 @@ function s2tRenderReport(){
     b.onclick = () => s2tAddOverride(b.dataset.from, b.dataset.to);
   });
 }
+
+/* ---------- 由原檔擷取每隻字型嘅樣本圖 ---------- */
+async function s2tRenderSamples(){
+  const s = S2.analysis;
+  if (!s || !s.samples || !S2.pdfjsDoc || !S2.famOrder) return;
+  const byPage = new Map();
+  S2.famOrder.forEach((fam, idx) => {
+    const sm = s.samples.get(fam);
+    if (!sm) return;
+    if (!byPage.has(sm.page)) byPage.set(sm.page, []);
+    byPage.get(sm.page).push({ idx, sm });
+  });
+  const SC = 2.2;
+  for (const [pageIdx, list] of byPage){
+    try {
+      const page = await S2.pdfjsDoc.getPage(pageIdx + 1);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: SC });
+      const off = document.createElement("canvas");
+      off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+      await page.render({ canvasContext: off.getContext("2d"), viewport: vp }).promise;
+      for (const { idx, sm } of list){
+        const host = document.querySelector(`canvas[data-sample="${idx}"]`);
+        if (!host) continue;
+        const w = Math.min(sm.size * Math.min(sm.n, 5) * 1.15, vp1.width - sm.x);
+        const h = sm.size * 1.4;
+        const sx = Math.max(0, sm.x - sm.size * 0.12) * SC;
+        const sy = Math.max(0, vp1.height - sm.y - sm.size * 1.08) * SC;
+        host.width = Math.max(1, Math.floor(w * SC));
+        host.height = Math.max(1, Math.floor(h * SC));
+        host.getContext("2d").drawImage(off, sx, sy, w * SC, h * SC, 0, 0, w * SC, h * SC);
+      }
+    } catch(e){ console.warn("[S2T] 樣本擷取失敗", e); }
+  }
+}
+
+/* ---------- 按款式自動配對 ---------- */
+$("s2tAutoMatch").onclick = () => {
+  if (!S2.analysis || !S2.fonts.length) return;
+  let n = 0;
+  for (const fam of (S2.famOrder || [])){
+    const want = window.S2T.guessStyle(fam);
+    if (!want) continue;
+    const f = S2.fonts.find(x => window.S2T.guessStyle(x.name) === want);
+    if (f){ S2.assign[fam] = f.id; n++; }
+  }
+  s2tRenderReport();
+  setStatus($("s2tStatus"), n ? `✅ 自動配對咗 ${n} 隻字型，估唔到款式嗰啲要你睇住樣本自己揀。`
+                              : "⚠️ 估唔到款式 — 字型檔名加返 Kai／Serif／Sans／楷／宋／黑 就配對得到。", n ? "ok" : "busy");
+};
 
 /* ---------- 轉換 ---------- */
 $("s2tGo").onclick = async () => {
