@@ -652,10 +652,13 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <label class="field-label" for="ocrPreview">預覽（可以直接喺呢度改錯字，改完先匯出）</label>
     <textarea id="ocrPreview" rows="14" style="width:100%;font-family:inherit;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:var(--radius);resize:vertical"></textarea>
 
-    <div class="toggle-row">
-      <input type="checkbox" id="ocrTables" checked>
-      <label for="ocrTables">嘗試偵測並保留表格（實驗性，只影響 DOCX）</label>
+    <label class="field-label">排版方式</label>
+    <div class="seg" id="ocrLayoutSeg">
+      <button class="active" data-view="flow">📖 舒服閱讀（推薦）</button>
+      <button data-view="keep">📐 貼近原版</button>
+      <button data-view="table">▦ 表格偵測</button>
     </div>
+    <p class="desc" id="ocrLayoutDesc" style="margin-top:6px"></p>
 
     <div class="toolbar" style="position:static">
       <button class="btn big" style="width:auto" id="ocrExportDocx">⬇️ 匯出 DOCX</button>
@@ -2699,41 +2702,132 @@ function ocrToLines(data, dpi){
   return [];
 }
 
-/* ---------- 中英之間唔應該加空格 ---------- */
+/* ---------- 中英之間唔應該加空格 ----------
+   另外：中文行入面嘅英文字母／數字，Tesseract 會逐個字母交返嚟
+   （因為佢當每隻字係一個單位），要黐返埋一齊，唔好變成 "P D F"。 */
 function ocrJoinWords(items){
-  let out = "";
+  const cjk = c => /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF]/.test(c);
+  // 先合併相鄰嘅單一拉丁字母／數字
+  const merged = [];
   for (const it of items){
+    const last = merged[merged.length - 1];
+    const isAtom = /^[A-Za-z0-9]$/.test(it.str);
+    const lastAtom = last && /^[A-Za-z0-9]+$/.test(last.str) && last.str.length <= 12;
+    const nearby = last && (it.x - last.x) < it.size * 2.2;   // 貼得夠近先當同一個字
+    if (isAtom && lastAtom && nearby) last.str += it.str;
+    else merged.push({ ...it });
+  }
+  let out = "";
+  for (const it of merged){
     const s = it.str;
     if (!out){ out = s; continue; }
     const prev = out[out.length - 1], next = s[0];
-    const cjk = c => /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF]/.test(c);
     out += (cjk(prev) || cjk(next)) ? s : " " + s;
   }
   return out.replace(/\s+/g, " ").trim();
 }
 
-/* ---------- 產生純文字 / Markdown ---------- */
-function ocrPagesToText(pages, asMarkdown){
+/* ---------- 專為 OCR 而設嘅排版器 ----------
+   點解唔用返 linesToBody()？
+   因為中文冇空格，Tesseract 會將「每一隻字」當一個獨立單位交返嚟。
+   原本嗰個表格偵測見到啲字排到成個方陣，就以為係表格，
+   結果一隻字一個格仔。所以 OCR 要行自己一套。            */
+
+/* 判斷一行係咪已經講完（結尾有句號等等） */
+function ocrLineEnds(t){
+  return /[。．.！!？?：:；;」』】）\)\]…—]$/.test(t.trim());
+}
+/* 判斷一行係咪太短，短到唔似仲有下文 */
+function ocrIsShort(t, typical){ return t.length < typical * 0.62; }
+
+/* 將「一行行」執成「一段段」，同時認返標題 */
+function ocrBuildBlocks(pg, mode){
+  const raw = [];
+  for (const l of pg.lines){
+    const text = ocrJoinWords(l.items);
+    if (!text) continue;
+    raw.push({
+      text,
+      size: Math.max(...l.items.map(i => i.size)),
+      bold: l.items.every(i => i.bold),
+      x0: Math.min(...l.items.map(i => i.x)),
+      y: l.y
+    });
+  }
+  if (!raw.length) return [];
+
+  // 正文字級 = 中位數；標題就係明顯大過佢嗰啲
+  const sizes = raw.map(r => r.size).sort((a, b) => a - b);
+  const bodySize = sizes[Math.floor(sizes.length / 2)] || 10;
+  const lens = raw.map(r => r.text.length).sort((a, b) => a - b);
+  const typicalLen = lens[Math.floor(lens.length * 0.75)] || 30;
+  const leftMargin = Math.min(...raw.map(r => r.x0));
+
+  const level = r => {
+    if (r.size >= bodySize * 1.55) return 1;
+    if (r.size >= bodySize * 1.28) return 2;
+    if (r.size >= bodySize * 1.10) return 3;
+    if (r.bold && r.text.length < typicalLen * 0.7) return 3;
+    return 0;
+  };
+
+  const blocks = [];
+  for (let i = 0; i < raw.length; i++){
+    const r = raw[i];
+    const lv = level(r);
+
+    if (lv > 0){ blocks.push({ type: "h", level: lv, text: r.text, size: r.size }); continue; }
+    if (mode === "keep"){ blocks.push({ type: "p", text: r.text, size: r.size, x0: r.x0 }); continue; }
+
+    // 「舒服閱讀」：可以接落上一段就接，唔好行行斷開
+    const prev = blocks[blocks.length - 1];
+    const canJoin =
+      prev && prev.type === "p" && !prev.closed &&
+      !ocrLineEnds(prev.text) &&
+      !ocrIsShort(prev.text, typicalLen) &&
+      r.x0 <= leftMargin + r.size * 2.2;      // 唔係突然縮排（縮排＝新一段）
+
+    if (canJoin){
+      const a = prev.text[prev.text.length - 1], b = r.text[0];
+      const cjk = c => /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF]/.test(c);
+      prev.text += (cjk(a) || cjk(b)) ? r.text : " " + r.text;
+    } else {
+      blocks.push({ type: "p", text: r.text, size: r.size, x0: r.x0 });
+    }
+    if (ocrLineEnds(r.text) || ocrIsShort(r.text, typicalLen)){
+      const last = blocks[blocks.length - 1];
+      if (last && last.type === "p") last.closed = true;
+    }
+  }
+  return blocks;
+}
+
+/* 段落／標題 → DOCX XML（用返你原本嘅 paraXml 風格，加埋間距同大綱級別） */
+function ocrBlockXml(b){
+  const t = xmlEscape(b.text);
+  if (b.type === "h"){
+    const sz = [0, 30, 24, 20][b.level];
+    return `<w:p><w:pPr><w:keepNext/><w:outlineLvl w:val="${b.level - 1}"/>` +
+           `<w:spacing w:before="${b.level === 1 ? 320 : 240}" w:after="120"/></w:pPr>` +
+           `<w:r><w:rPr><w:b/><w:sz w:val="${sz}"/></w:rPr>` +
+           `<w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
+  }
+  return `<w:p><w:pPr><w:spacing w:after="140" w:line="300" w:lineRule="auto"/>` +
+         `<w:jc w:val="both"/></w:pPr>` +
+         `<w:r><w:rPr><w:sz w:val="22"/></w:rPr>` +
+         `<w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
+}
+function ocrPagesToText(pages, asMarkdown, mode){
   const chunks = [];
   for (const pg of pages){
-    const sizes = pg.lines.flatMap(l => l.items.map(i => i.size)).sort((a, b) => a - b);
-    const median = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 10;
-    const body = [];
-    for (const l of pg.lines){
-      const txt = ocrJoinWords(l.items);
-      if (!txt) continue;
-      if (asMarkdown){
-        const sz = Math.max(...l.items.map(i => i.size));
-        const allBold = l.items.every(i => i.bold);
-        if (sz >= median * 1.6)      body.push("# " + txt);
-        else if (sz >= median * 1.3) body.push("## " + txt);
-        else if (sz >= median * 1.12 || (allBold && txt.length < 40)) body.push("### " + txt);
-        else body.push(txt);
-      } else body.push(txt);
-    }
+    const blocks = ocrBuildBlocks(pg, mode || "flow");
+    const body = blocks.map(b => {
+      if (b.type === "h") return (asMarkdown ? "#".repeat(b.level) + " " : "") + b.text;
+      return b.text;
+    });
     chunks.push(asMarkdown
       ? `<!-- 第 ${pg.pageNo} 頁 -->\n\n` + body.join("\n\n")
-      : `───── 第 ${pg.pageNo} 頁 ─────\n\n` + body.join("\n"));
+      : `───── 第 ${pg.pageNo} 頁 ─────\n\n` + body.join("\n\n"));
   }
   return chunks.join(asMarkdown ? "\n\n---\n\n" : "\n\n");
 }
@@ -2779,9 +2873,22 @@ wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
 });
 
 /* ---------- 設定掣 ---------- */
-let ocrDpi = 200, ocrSpeed = "eco";
+let ocrDpi = 200, ocrSpeed = "eco", ocrLayout = "flow";
 wireSeg($("ocrDpiSeg"), v => { ocrDpi = parseInt(v); });
 wireSeg($("ocrSpeedSeg"), v => { ocrSpeed = v; });
+
+const OCR_LAYOUT_DESC = {
+  flow: "將斷開嘅行接返做完整段落，自動認出標題，行距同段距執靚。<b>最舒服睇，最推薦。</b>",
+  keep: "原文每一行就係一段，保留原本嘅斷行位置。適合詩、地址、清單、表單呢類唔想被接埋嘅內容。",
+  table: "嘗試砌返表格。<b>⚠️ 中文文件好容易誤判</b>（每隻字變一個格仔），除非你份嘢真係一個大表格，否則唔好揀。"
+};
+function ocrRefreshLayoutDesc(){ $("ocrLayoutDesc").innerHTML = OCR_LAYOUT_DESC[ocrLayout]; }
+wireSeg($("ocrLayoutSeg"), v => {
+  ocrLayout = v;
+  ocrRefreshLayoutDesc();
+  if (OCR.pages.length) $("ocrPreview").value = ocrPagesToText(OCR.pages, false, ocrLayout);
+});
+ocrRefreshLayoutDesc();
 
 /* ---------- 停止 ---------- */
 $("ocrStop").onclick = () => {
@@ -2866,7 +2973,7 @@ $("ocrGo").onclick = async () => {
     $("ocrProgBar").style.width = "100%";
     if (!OCR.pages.length){ setStatus(st, "⚠️ 冇認到任何文字。", "warn"); return; }
 
-    const preview = ocrPagesToText(OCR.pages, false);
+    const preview = ocrPagesToText(OCR.pages, false, ocrLayout);
     $("ocrPreview").value = preview;
     const chars = OCR.pages.reduce((n, pg) =>
       n + pg.lines.reduce((m, l) => m + l.items.reduce((k, i) => k + i.str.length, 0), 0), 0);
@@ -2908,7 +3015,7 @@ $("ocrExportTxt").onclick = () => {
 
 $("ocrExportMd").onclick = () => {
   const st = $("ocrExportStatus");
-  const md = ocrPagesToText(OCR.pages, true);
+  const md = ocrPagesToText(OCR.pages, true, ocrLayout);
   downloadBlob(new Blob([md], { type: "text/markdown;charset=utf-8" }),
                stripExt(OCR.name || "ocr") + ".md");
   setStatus(st, "✅ 已下載 Markdown", "ok");
@@ -2920,11 +3027,15 @@ $("ocrExportDocx").onclick = async () => {
   setStatus(st, "⏳ 產生緊 DOCX…", "busy");
   try {
     let body = "";
-    for (const pg of OCR.pages){
-      body += linesToBody(pg.lines, $("ocrTables").checked);   // ← 重用你原本嗰個
-      body += "<w:p/>";
+    if (ocrLayout === "table"){
+      // 舊行為：交返俾原本嗰個表格偵測（中文好易誤判，唔建議）
+      for (const pg of OCR.pages){ body += linesToBody(pg.lines, true) + "<w:p/>"; }
+    } else {
+      for (const pg of OCR.pages){
+        for (const b of ocrBuildBlocks(pg, ocrLayout)) body += ocrBlockXml(b);
+      }
     }
-    const blob = await makeDocx(body);                          // ← 重用你原本嗰個
+    const blob = await makeDocx(body);
     downloadBlob(blob, stripExt(OCR.name || "ocr") + ".docx");
     setStatus(st, "✅ 已下載 DOCX", "ok");
   } catch (err){
