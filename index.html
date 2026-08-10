@@ -155,7 +155,11 @@ textarea{
   border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;
   resize:vertical;background:#FCFDFB;color:var(--ink);
 }
-textarea:focus,input[type=text]:focus{outline:2px solid var(--accent);outline-offset:-1px}
+textarea:focus,input[type=text]:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+select{
+  width:100%;padding:10px;font-size:1rem;border:1px solid var(--line);
+  border-radius:8px;background:#FCFDFB;color:var(--ink);font-family:inherit;
+}
 input[type=text]{
   width:100%;padding:10px;font-size:1rem;border:1px solid var(--line);border-radius:8px;background:#FCFDFB;color:var(--ink);
 }
@@ -242,6 +246,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-word" role="tab">📄 PDF ⇄ Word</button>
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
+      <button data-panel="panel-ocr" role="tab">🔍 掃描件認字</button>
       <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
     </nav>
   </div>
@@ -573,7 +578,95 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 </section>
 
-<!-- ============ 9. 簡轉繁 ============ -->
+<!-- ============ 9. 掃描件認字（OCR） ============ -->
+<section id="panel-ocr" class="panel">
+  <div class="box">
+    <h2>掃描件認字（OCR）</h2>
+    <p class="desc">
+      如果份 PDF 係<b>掃描出嚟嘅相</b>（揀唔到字、搵唔到字），「PDF ⇄ Word」嗰個 tab 會攞到零個字。
+      呢度就係補呢個窿：逐頁認返啲字出嚟，再出 DOCX／TXT／Markdown。
+      <b>認字引擎只會喺你㩒入呢個 tab 嗰陣先下載</b>，唔會拖慢其他功能。
+    </p>
+
+    <div class="note" id="ocrMachineNote">⚙️ 正在偵測你部電腦…</div>
+
+    <div class="dropzone" id="ocrDrop" tabindex="0"><strong>拖放一個掃描 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="ocrFile" accept="application/pdf">
+    <ul class="file-list" id="ocrList"></ul>
+    <div class="status" id="ocrLoadStatus"></div>
+  </div>
+
+  <div class="box" id="ocrSettingsBox" hidden>
+    <h2>設定</h2>
+
+    <label class="field-label" for="ocrLang">文件語言（<b>唔好貪心全選</b>，揀得愈少愈快愈準）</label>
+    <select id="ocrLang">
+      <option value="chi_tra+eng" selected>繁體中文 + 英文（最常用）</option>
+      <option value="chi_sim+eng">簡體中文 + 英文</option>
+      <option value="eng">純英文（快好多、準好多）</option>
+      <option value="chi_tra">純繁體中文</option>
+      <option value="chi_sim">純簡體中文</option>
+      <option value="chi_tra_vert">繁體中文（直排）</option>
+    </select>
+
+    <label class="field-label" for="ocrPages">要認邊幾頁（例如 <code>1-5</code> 或 <code>1,3,7</code>；留空 = 全部）</label>
+    <input type="text" id="ocrPages" placeholder="留空即係全部頁">
+
+    <label class="field-label">掃描精細度</label>
+    <div class="seg" id="ocrDpiSeg">
+      <button data-view="150">省力 150</button>
+      <button class="active" data-view="200">平衡 200</button>
+      <button data-view="300">精細 300</button>
+    </div>
+    <p class="desc" style="margin-top:6px">精細度愈高愈準，但慢一倍、食多一倍記憶體。字細嘅文件先需要 300。</p>
+
+    <label class="field-label">速度模式</label>
+    <div class="seg" id="ocrSpeedSeg">
+      <button class="active" data-view="eco">🍃 省電（每頁抖一抖，唔阻你做其他嘢）</button>
+      <button data-view="fast">⚡ 全速（一頁接一頁，期間部機會鈍啲）</button>
+    </div>
+
+    <div class="note warn">
+      ⚠️ 認中文本身慢，電腦差會更慢，<b>一頁大概 20 秒至 1 分鐘</b>。頁數多嘅話，建議先用「快速拆分」斬件。
+      中途撳「停止」可以隨時煞停，已經認完嘅頁數會保留。
+    </div>
+
+    <div class="toolbar" style="position:static">
+      <button class="btn big" style="width:auto" id="ocrGo">🔍 開始認字</button>
+      <button class="btn danger" id="ocrStop" hidden>■ 停止</button>
+    </div>
+
+    <div class="status" id="ocrStatus"></div>
+    <div id="ocrProgWrap" hidden style="margin-top:10px">
+      <div style="height:8px;background:#E8EDE7;border-radius:99px;overflow:hidden">
+        <div id="ocrProgBar" style="height:100%;width:0%;background:var(--accent);transition:width .25s"></div>
+      </div>
+      <div class="status" id="ocrProgText"></div>
+    </div>
+  </div>
+
+  <div class="box" id="ocrResultBox" hidden>
+    <h2>認字結果</h2>
+    <div class="status ok" id="ocrResultInfo"></div>
+
+    <label class="field-label" for="ocrPreview">預覽（可以直接喺呢度改錯字，改完先匯出）</label>
+    <textarea id="ocrPreview" rows="14" style="width:100%;font-family:inherit;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:var(--radius);resize:vertical"></textarea>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ocrTables" checked>
+      <label for="ocrTables">嘗試偵測並保留表格（實驗性，只影響 DOCX）</label>
+    </div>
+
+    <div class="toolbar" style="position:static">
+      <button class="btn big" style="width:auto" id="ocrExportDocx">⬇️ 匯出 DOCX</button>
+      <button class="btn secondary" id="ocrExportMd">⬇️ 匯出 Markdown</button>
+      <button class="btn secondary" id="ocrExportTxt">⬇️ 匯出 TXT</button>
+    </div>
+    <div class="status" id="ocrExportStatus"></div>
+  </div>
+</section>
+
+<!-- ============ 10. 簡轉繁 ============ -->
 <section id="panel-s2t" class="panel">
 
   <div class="box">
@@ -678,7 +771,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 
 </main>
 
-<footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js + JSZip）· 可以直接放上 GitHub Pages / Netlify 托管</footer>
+<footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js + JSZip + Tesseract.js）· 檔案永遠唔會離開你部電腦 · 可以直接放上 GitHub Pages / Netlify 托管</footer>
 
 <script>
 /* =====================================================
@@ -2467,7 +2560,316 @@ $("trGo").onclick = async () => {
 };
 
 /* =====================================================
-   9) 簡轉繁（就地改寫 content stream）
+   9) 掃描件認字（OCR）
+   引擎喺 lib/tesseract.min.js，語言檔喺 lib/tessdata/，
+   全部㩒入呢個分頁先至 lazy load，唔會拖慢首頁。
+   認完之後直接餵入上面 linesToBody() / makeDocx()，
+   重用「PDF ⇄ Word」嗰套排版邏輯，唔使重寫。
+===================================================== */
+const OCR = {
+  buf: null, name: "", pdfjsDoc: null,
+  libReady: false, worker: null, workerLang: null,
+  running: false, abort: false,
+  pages: []   // { pageNo, lines }
+};
+
+/* ---------- 偵測部機，自動建議設定 ---------- */
+function ocrDetectMachine(){
+  const cores = navigator.hardwareConcurrency || 2;
+  const mem = navigator.deviceMemory || null;   // GB，只有 Chrome/Edge 有
+  let tier, advice;
+  if (cores >= 8 && (mem === null || mem >= 8)){
+    tier = "強";
+    advice = "呢部機幾夠力，可以用「全速 + 精細 300」，一次做 20 頁都冇問題。";
+    $("ocrDpiSeg").querySelector('[data-view="300"]').click();
+    $("ocrSpeedSeg").querySelector('[data-view="fast"]').click();
+  } else if (cores >= 4 && (mem === null || mem >= 4)){
+    tier = "中等";
+    advice = "呢部機中規中矩，建議用「省電 + 平衡 200」，一次做 10 頁左右。";
+  } else {
+    tier = "偏弱";
+    advice = "呢部機比較弱，建議用「省電 + 省力 150」，一次做 3 至 5 頁，做之前關咗其他程式。";
+    $("ocrDpiSeg").querySelector('[data-view="150"]').click();
+  }
+  const memTxt = mem ? `、記憶體約 ${mem}GB` : "";
+  $("ocrMachineNote").innerHTML =
+    `⚙️ 偵測到你部電腦：<b>${cores} 個 CPU 核心</b>${memTxt} — 評級「<b>${tier}</b>」。<br>${advice}` +
+    `<br><span style="color:var(--ink-soft)">（OCR 只用 CPU，<b>完全唔使 GPU</b>，顯示卡差都冇影響。）</span>`;
+}
+
+/* ---------- Lazy load 認字引擎 ---------- */
+async function ocrEnsureLib(st){
+  if (OCR.libReady) return;
+  setStatus(st, "⏳ 第一次使用，載入緊認字引擎…（之後就唔使再等）", "busy");
+  if (!window.Tesseract) await loadScript("lib/tesseract.min.js");
+  if (!window.Tesseract) throw new Error("載入唔到 lib/tesseract.min.js，請確認個檔案已經放入 lib/ 資料夾");
+  OCR.libReady = true;
+}
+
+/* ---------- 開／換 worker ---------- */
+async function ocrGetWorker(lang, speed, onProg){
+  if (OCR.worker && OCR.workerLang === lang) return OCR.worker;
+  if (OCR.worker){ try { await OCR.worker.terminate(); } catch(e){} OCR.worker = null; }
+  const worker = await Tesseract.createWorker(lang, 1, {
+    workerPath: "lib/tesseract-worker.min.js",
+    corePath:   "lib/tesseract-core/",
+    langPath:   "lib/tessdata",
+    gzip: false,
+    logger: m => {
+      if (m.status === "loading language traineddata" || m.status === "initializing tesseract"){
+        onProg && onProg(`載入 ${lang} 語言檔… ${Math.round((m.progress||0)*100)}%`);
+      }
+    }
+  });
+  OCR.worker = worker;
+  OCR.workerLang = lang;
+  return worker;
+}
+
+/* ---------- 將 PDF 一頁渲染做 canvas ---------- */
+async function ocrRenderPage(pageNo, dpi){
+  const page = await OCR.pdfjsDoc.getPage(pageNo);
+  const viewport = page.getViewport({ scale: dpi / 72 });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: false });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  page.cleanup();
+  return canvas;
+}
+
+/* ---------- Tesseract 結果 → 你原本嗰個 lines 結構 ----------
+   咁樣就可以原封不動咁用返 linesToBody() 同 makeDocx()，
+   連粗體判斷、表格偵測都照用。                               */
+function ocrToLines(data, dpi){
+  const k = 72 / dpi;                    // 像素 → PDF point
+  const lines = [];
+  const srcLines = (data.lines && data.lines.length)
+    ? data.lines
+    : (data.paragraphs || []).flatMap(p => p.lines || []);
+  for (const L of srcLines){
+    const words = (L.words || []).filter(w => w.text && w.text.trim());
+    if (!words.length) continue;
+    const size = Math.max(6, (L.bbox.y1 - L.bbox.y0) * k);
+    const items = words.map(w => ({
+      x: w.bbox.x0 * k,
+      str: w.text,
+      size,
+      bold: !!(w.font_bold || (w.font_name && /bold|black|heavy/i.test(w.font_name)))
+    }));
+    items.sort((a, b) => a.x - b.x);
+    lines.push({ y: -L.bbox.y0 * k, items });   // 負數：等下面由大到細排＝由上到下
+  }
+  lines.sort((a, b) => b.y - a.y);
+  return lines;
+}
+
+/* ---------- 中英之間唔應該加空格 ---------- */
+function ocrJoinWords(items){
+  let out = "";
+  for (const it of items){
+    const s = it.str;
+    if (!out){ out = s; continue; }
+    const prev = out[out.length - 1], next = s[0];
+    const cjk = c => /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF]/.test(c);
+    out += (cjk(prev) || cjk(next)) ? s : " " + s;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/* ---------- 產生純文字 / Markdown ---------- */
+function ocrPagesToText(pages, asMarkdown){
+  const chunks = [];
+  for (const pg of pages){
+    const sizes = pg.lines.flatMap(l => l.items.map(i => i.size)).sort((a, b) => a - b);
+    const median = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 10;
+    const body = [];
+    for (const l of pg.lines){
+      const txt = ocrJoinWords(l.items);
+      if (!txt) continue;
+      if (asMarkdown){
+        const sz = Math.max(...l.items.map(i => i.size));
+        const allBold = l.items.every(i => i.bold);
+        if (sz >= median * 1.6)      body.push("# " + txt);
+        else if (sz >= median * 1.3) body.push("## " + txt);
+        else if (sz >= median * 1.12 || (allBold && txt.length < 40)) body.push("### " + txt);
+        else body.push(txt);
+      } else body.push(txt);
+    }
+    chunks.push(asMarkdown
+      ? `<!-- 第 ${pg.pageNo} 頁 -->\n\n` + body.join("\n\n")
+      : `───── 第 ${pg.pageNo} 頁 ─────\n\n` + body.join("\n"));
+  }
+  return chunks.join(asMarkdown ? "\n\n---\n\n" : "\n\n");
+}
+
+/* ---------- 上載 PDF ---------- */
+wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
+  const st = $("ocrLoadStatus");
+  const file = files[0];
+  try {
+    setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
+    OCR.buf = await file.arrayBuffer();
+    OCR.name = file.name;
+    OCR.pages = [];
+    if (OCR.pdfjsDoc){ try { OCR.pdfjsDoc.destroy(); } catch(e){} }
+    OCR.pdfjsDoc = await pdfjsLib.getDocument({ data: OCR.buf.slice(0) }).promise;
+
+    // 順手偵測：份 PDF 本身有冇文字層？有嘅話唔使 OCR
+    let hasText = false;
+    const probe = Math.min(3, OCR.pdfjsDoc.numPages);
+    for (let i = 1; i <= probe; i++){
+      const p = await OCR.pdfjsDoc.getPage(i);
+      const tc = await p.getTextContent();
+      if (tc.items.some(it => it.str && it.str.trim().length > 8)){ hasText = true; }
+      p.cleanup();
+      if (hasText) break;
+    }
+
+    $("ocrList").innerHTML =
+      `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
+      `<span class="pages">共 ${OCR.pdfjsDoc.numPages} 頁</span></li>`;
+    $("ocrSettingsBox").hidden = false;
+    $("ocrResultBox").hidden = true;
+
+    if (hasText){
+      setStatus(st, "💡 呢份 PDF 本身已經有文字！唔使認字 — 去「📄 PDF ⇄ Word」嗰個 tab 直接匯出會快好多、準好多。當然你想喺呢度認都得。", "warn");
+    } else {
+      setStatus(st, "✅ 已載入。呢份係掃描件（冇文字層），啱用呢個功能。", "ok");
+    }
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  }
+});
+
+/* ---------- 設定掣 ---------- */
+let ocrDpi = 200, ocrSpeed = "eco";
+wireSeg($("ocrDpiSeg"), v => { ocrDpi = parseInt(v); });
+wireSeg($("ocrSpeedSeg"), v => { ocrSpeed = v; });
+
+/* ---------- 停止 ---------- */
+$("ocrStop").onclick = () => {
+  OCR.abort = true;
+  setStatus($("ocrStatus"), "⏹️ 停緊…做完手頭嗰頁就會停。", "warn");
+};
+
+/* ---------- 開始認字 ---------- */
+$("ocrGo").onclick = async () => {
+  const st = $("ocrStatus");
+  if (!OCR.pdfjsDoc){ setStatus(st, "請先上載一個 PDF。", "err"); return; }
+  if (OCR.running) return;
+
+  const total = OCR.pdfjsDoc.numPages;
+  let pageList;
+  try {
+    const raw = $("ocrPages").value.trim();
+    pageList = raw ? parsePageList(raw, total, "要認嘅頁數")
+                   : Array.from({ length: total }, (_, i) => i + 1);
+  } catch (err){ setStatus(st, "❌ " + err.message, "err"); return; }
+  if (!pageList.length){ setStatus(st, "冇揀到任何頁數。", "err"); return; }
+
+  const lang = $("ocrLang").value;
+  OCR.running = true; OCR.abort = false;
+  $("ocrGo").disabled = true;
+  $("ocrStop").hidden = false;
+  $("ocrProgWrap").hidden = false;
+  $("ocrResultBox").hidden = true;
+  const t0 = Date.now();
+
+  try {
+    await ocrEnsureLib(st);
+    const worker = await ocrGetWorker(lang, ocrSpeed, msg => setStatus(st, "⏳ " + msg, "busy"));
+    await worker.setParameters({
+      preserve_interword_spaces: "1",
+      tessedit_pageseg_mode: Tesseract.PSM ? Tesseract.PSM.AUTO : "3"
+    });
+
+    OCR.pages = [];
+    for (let i = 0; i < pageList.length; i++){
+      if (OCR.abort) break;
+      const pageNo = pageList[i];
+      const pct = Math.round(i / pageList.length * 100);
+      $("ocrProgBar").style.width = pct + "%";
+
+      const done = i;
+      const eta = done > 0
+        ? `，估計仲要 ${Math.ceil((Date.now() - t0) / done * (pageList.length - done) / 1000)} 秒`
+        : "";
+      $("ocrProgText").textContent = `第 ${pageNo} 頁（${i + 1}／${pageList.length}）認緊字…${eta}`;
+      setStatus(st, "⏳ 認字進行中，可以隨時撳「停止」。", "busy");
+
+      const canvas = await ocrRenderPage(pageNo, ocrDpi);
+      const { data } = await worker.recognize(canvas);
+      canvas.width = canvas.height = 0;          // 即刻放低記憶體
+      OCR.pages.push({ pageNo, lines: ocrToLines(data, ocrDpi) });
+
+      if (ocrSpeed === "eco") await new Promise(r => setTimeout(r, 120));  // 抖一抖，唔好霸死部機
+    }
+
+    $("ocrProgBar").style.width = "100%";
+    if (!OCR.pages.length){ setStatus(st, "⚠️ 冇認到任何文字。", "warn"); return; }
+
+    $("ocrPreview").value = ocrPagesToText(OCR.pages, false);
+    const secs = Math.round((Date.now() - t0) / 1000);
+    $("ocrResultInfo").textContent =
+      `✅ 認完 ${OCR.pages.length} 頁，用咗 ${secs} 秒` +
+      (OCR.abort ? "（中途停咗，只保留已完成嘅頁）" : "");
+    $("ocrResultBox").hidden = false;
+    setStatus(st, OCR.abort ? "⏹️ 已停止。" : "✅ 搞掂！可以喺下面改錯字再匯出。", "ok");
+    $("ocrProgText").textContent = "";
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  } finally {
+    OCR.running = false;
+    $("ocrGo").disabled = false;
+    $("ocrStop").hidden = true;
+  }
+};
+
+/* ---------- 匯出 ---------- */
+$("ocrExportTxt").onclick = () => {
+  const st = $("ocrExportStatus");
+  const blob = new Blob([$("ocrPreview").value], { type: "text/plain;charset=utf-8" });
+  downloadBlob(blob, stripExt(OCR.name || "ocr") + ".txt");
+  setStatus(st, "✅ 已下載 TXT", "ok");
+};
+
+$("ocrExportMd").onclick = () => {
+  const st = $("ocrExportStatus");
+  const md = ocrPagesToText(OCR.pages, true);
+  downloadBlob(new Blob([md], { type: "text/markdown;charset=utf-8" }),
+               stripExt(OCR.name || "ocr") + ".md");
+  setStatus(st, "✅ 已下載 Markdown", "ok");
+};
+
+$("ocrExportDocx").onclick = async () => {
+  const st = $("ocrExportStatus");
+  if (!OCR.pages.length){ setStatus(st, "仲未認字。", "err"); return; }
+  setStatus(st, "⏳ 產生緊 DOCX…", "busy");
+  try {
+    let body = "";
+    for (const pg of OCR.pages){
+      body += linesToBody(pg.lines, $("ocrTables").checked);   // ← 重用你原本嗰個
+      body += "<w:p/>";
+    }
+    const blob = await makeDocx(body);                          // ← 重用你原本嗰個
+    downloadBlob(blob, stripExt(OCR.name || "ocr") + ".docx");
+    setStatus(st, "✅ 已下載 DOCX", "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  }
+};
+
+ocrDetectMachine();
+
+/* =====================================================
+   10) 簡轉繁（就地改寫 content stream）
    引擎喺 lib/s2t-core.js，對照表喺 lib/s2t-dict.js，
    兩個都係㩒入呢個分頁先至 lazy load，唔會拖慢首頁。
 ===================================================== */
