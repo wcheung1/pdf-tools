@@ -2644,27 +2644,59 @@ async function ocrRenderPage(pageNo, dpi){
 /* ---------- Tesseract 結果 → 你原本嗰個 lines 結構 ----------
    咁樣就可以原封不動咁用返 linesToBody() 同 makeDocx()，
    連粗體判斷、表格偵測都照用。                               */
+/* ---------- 由 Tesseract 結果挖出「一行行」----------
+   唔同版本嘅 Tesseract.js 結構唔同：
+     新版(v5/v6)：data.blocks[] → paragraphs[] → lines[] → words[]
+     舊版        ：data.lines[] 直接喺頂層
+   兩種都照顧，最差都有 data.text 兜底，唔會再出吉檔案。   */
+function ocrExtractLines(data){
+  if (Array.isArray(data.blocks) && data.blocks.length){
+    const out = [];
+    for (const b of data.blocks){
+      for (const p of (b.paragraphs || [])) for (const l of (p.lines || [])) out.push(l);
+      for (const l of (b.lines || [])) out.push(l);
+    }
+    if (out.length) return out;
+  }
+  if (Array.isArray(data.lines) && data.lines.length) return data.lines;
+  if (Array.isArray(data.paragraphs) && data.paragraphs.length)
+    return data.paragraphs.flatMap(p => p.lines || []);
+  return [];
+}
+
 function ocrToLines(data, dpi){
   const k = 72 / dpi;                    // 像素 → PDF point
   const lines = [];
-  const srcLines = (data.lines && data.lines.length)
-    ? data.lines
-    : (data.paragraphs || []).flatMap(p => p.lines || []);
-  for (const L of srcLines){
+  for (const L of ocrExtractLines(data)){
+    const bb = L.bbox || {};
+    const h = (bb.y1 - bb.y0) || 14;
+    const size = Math.max(6, h * k);
     const words = (L.words || []).filter(w => w.text && w.text.trim());
-    if (!words.length) continue;
-    const size = Math.max(6, (L.bbox.y1 - L.bbox.y0) * k);
-    const items = words.map(w => ({
-      x: w.bbox.x0 * k,
-      str: w.text,
-      size,
-      bold: !!(w.font_bold || (w.font_name && /bold|black|heavy/i.test(w.font_name)))
-    }));
-    items.sort((a, b) => a.x - b.x);
-    lines.push({ y: -L.bbox.y0 * k, items });   // 負數：等下面由大到細排＝由上到下
+    if (words.length){
+      const items = words.map(w => ({
+        x: ((w.bbox && w.bbox.x0) || 0) * k,
+        str: w.text,
+        size,
+        bold: !!(w.font_bold || (w.font_name && /bold|black|heavy/i.test(w.font_name)))
+      }));
+      items.sort((a, b) => a.x - b.x);
+      lines.push({ y: -(bb.y0 || 0) * k, items });
+    } else if (L.text && L.text.trim()){
+      lines.push({ y: -(bb.y0 || 0) * k,
+                   items: [{ x: (bb.x0 || 0) * k, str: L.text.trim(), size, bold: false }] });
+    }
   }
-  lines.sort((a, b) => b.y - a.y);
-  return lines;
+  if (lines.length){
+    lines.sort((a, b) => b.y - a.y);
+    return lines;
+  }
+  /* 兜底：淨係攞到純文字，冇位置資訊，起碼有字出到 */
+  if (data.text && data.text.trim()){
+    return data.text.split(/\r?\n/).filter(t => t.trim()).map((t, i) => ({
+      y: -i, items: [{ x: 0, str: t.trim(), size: 12, bold: false }]
+    }));
+  }
+  return [];
 }
 
 /* ---------- 中英之間唔應該加空格 ---------- */
@@ -2757,6 +2789,27 @@ $("ocrStop").onclick = () => {
   setStatus($("ocrStatus"), "⏹️ 停緊…做完手頭嗰頁就會停。", "warn");
 };
 
+/* ---------- 將難明嘅錯誤翻譯做人話 ---------- */
+function ocrFriendlyError(err, lang){
+  const msg = String(err && (err.message || err) || "");
+  if (/tesseract\.min\.js/i.test(msg)) return msg;
+  if (/traineddata|langPath|Error opening data file|failed to load language/i.test(msg)){
+    return `搵唔到語言檔。請確認 lib/tessdata/ 資料夾入面有齊「${lang.split("+").join("、")}」呢幾個 .traineddata 檔案`
+         + `（檔名要一模一樣，例如 chi_tra.traineddata，唔可以有 .gz 或者括號）。`;
+  }
+  if (/worker|Worker/i.test(msg) && /fail|load|import|network/i.test(msg)){
+    return "載入唔到 worker。兩個常見原因：(1) lib/tesseract-worker.min.js 未擺好或者未改名；"
+         + "(2) 你用 file:// 直接開呢個網頁 —— 部分瀏覽器唔准。放咗上 GitHub Pages 就唔會有呢個問題。";
+  }
+  if (/wasm|corePath|core/i.test(msg)){
+    return "載入唔到引擎核心。請確認 lib/tesseract-core/ 資料夾入面有嗰幾個 .wasm.js 檔案。";
+  }
+  if (/memory|allocation|out of/i.test(msg)){
+    return "記憶體唔夠。請試下：調低掃描精細度（150）、一次做少啲頁數、或者關咗其他程式再試。";
+  }
+  return msg || "不明錯誤";
+}
+
 /* ---------- 開始認字 ---------- */
 $("ocrGo").onclick = async () => {
   const st = $("ocrStatus");
@@ -2803,7 +2856,7 @@ $("ocrGo").onclick = async () => {
       setStatus(st, "⏳ 認字進行中，可以隨時撳「停止」。", "busy");
 
       const canvas = await ocrRenderPage(pageNo, ocrDpi);
-      const { data } = await worker.recognize(canvas);
+      const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
       canvas.width = canvas.height = 0;          // 即刻放低記憶體
       OCR.pages.push({ pageNo, lines: ocrToLines(data, ocrDpi) });
 
@@ -2813,17 +2866,31 @@ $("ocrGo").onclick = async () => {
     $("ocrProgBar").style.width = "100%";
     if (!OCR.pages.length){ setStatus(st, "⚠️ 冇認到任何文字。", "warn"); return; }
 
-    $("ocrPreview").value = ocrPagesToText(OCR.pages, false);
+    const preview = ocrPagesToText(OCR.pages, false);
+    $("ocrPreview").value = preview;
+    const chars = OCR.pages.reduce((n, pg) =>
+      n + pg.lines.reduce((m, l) => m + l.items.reduce((k, i) => k + i.str.length, 0), 0), 0);
     const secs = Math.round((Date.now() - t0) / 1000);
-    $("ocrResultInfo").textContent =
-      `✅ 認完 ${OCR.pages.length} 頁，用咗 ${secs} 秒` +
-      (OCR.abort ? "（中途停咗，只保留已完成嘅頁）" : "");
+
+    if (chars === 0){
+      $("ocrResultInfo").className = "status err";
+      $("ocrResultInfo").innerHTML =
+        `❌ 掃咗 ${OCR.pages.length} 頁，但<b>一隻字都認唔到</b>。<br>` +
+        `最常見原因：語言檔載入唔到、揀錯語言、或者掃描太矇。<br>` +
+        `試下：① 改揀「純英文」再試一頁 ② 將精細度調高到 300 ③ 撳 F12 睇 Console 有冇紅色錯誤。`;
+      setStatus(st, "⚠️ 認完但零收穫，睇下面提示。", "warn");
+    } else {
+      $("ocrResultInfo").className = "status ok";
+      $("ocrResultInfo").textContent =
+        `✅ 認完 ${OCR.pages.length} 頁，一共 ${chars} 隻字，用咗 ${secs} 秒` +
+        (OCR.abort ? "（中途停咗，只保留已完成嘅頁）" : "");
+      setStatus(st, OCR.abort ? "⏹️ 已停止。" : "✅ 搞掂！可以喺下面改錯字再匯出。", "ok");
+    }
     $("ocrResultBox").hidden = false;
-    setStatus(st, OCR.abort ? "⏹️ 已停止。" : "✅ 搞掂！可以喺下面改錯字再匯出。", "ok");
     $("ocrProgText").textContent = "";
   } catch (err){
     console.error(err);
-    setStatus(st, "❌ " + (err.message || err), "err");
+    setStatus(st, "❌ " + ocrFriendlyError(err, lang), "err");
   } finally {
     OCR.running = false;
     $("ocrGo").disabled = false;
