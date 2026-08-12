@@ -681,27 +681,53 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="status" id="s2tLoadStatus"></div>
   </div>
 
+  <div class="box" id="s2tModeBox" hidden>
+    <h2>用邊個模式？</h2>
+    <div class="seg" id="s2tModeSeg">
+      <button type="button" class="active" data-view="easy">😊 簡易（推薦）</button>
+      <button type="button" data-view="pro">🔧 進階</button>
+    </div>
+    <p class="desc" id="s2tModeDesc" style="margin-top:6px"></p>
+  </div>
+
   <div class="box" id="s2tFontBox" hidden>
     <h2>① 繁體字型</h2>
-    <p class="desc">原 PDF 嵌入嘅係<b>簡體字型嘅子集</b>，入面根本冇繁體字形，所以轉咗嘅字一定要用另一隻字型畫。可以上載多隻，再逐隻原字型指定用邊隻（宋配明體、黑配黑體、楷配楷體，效果最自然）。</p>
-    <div class="dropzone" id="s2tFontDrop" tabindex="0"><strong>拖放字型檔到呢度</strong><br>支援 TTF / OTF（可多選）</div>
-    <input type="file" id="s2tFontInput" accept=".ttf,.otf,.TTF,.OTF" multiple>
+    <p class="desc">原 PDF 嵌入嘅係<b>簡體字型嘅子集</b>，入面根本冇繁體字形，所以轉咗嘅字一定要用另一隻字型畫。</p>
+
+    <div class="status" id="s2tAutoFontStatus"></div>
+    <div class="export-row" style="margin-top:8px">
+      <button class="btn secondary" id="s2tAutoFont">⬇️ 自動取得字型（思源黑體）</button>
+      <button class="btn secondary" id="s2tSysFont" hidden>🖥️ 用我電腦已裝嘅字型</button>
+    </div>
+
+    <div id="s2tFontAdv">
+      <p class="desc" style="margin-top:14px">想更似原文字體（宋配明體、楷配楷體），可以自己上載，再逐隻指定：</p>
+      <div class="dropzone" id="s2tFontDrop" tabindex="0"><strong>拖放字型檔到呢度</strong><br>支援 TTF / OTF（可多選）</div>
+      <input type="file" id="s2tFontInput" accept=".ttf,.otf,.TTF,.OTF" multiple>
+    </div>
     <ul class="file-list" id="s2tFontList"></ul>
-    <div class="note"><b>建議用 TTF。</b>fontkit 對 OTF（CFF 輪廓）嘅子集化有 bug 修唔到，只可以完整嵌入，出嚟嘅檔案會大好多（例如 +5MB）。TTF 經修正後可以正常子集化，通常只加幾百 KB。</div>
+    <div class="note" id="s2tFontTtfNote"><b>建議用 TTF。</b>fontkit 對 OTF（CFF 輪廓）嘅子集化有 bug 修唔到，只可以完整嵌入，出嚟嘅檔案會大好多（例如 +5MB）。TTF 經修正後可以正常子集化，通常只加幾百 KB。</div>
     <div class="status" id="s2tFontStatus"></div>
   </div>
 
   <div class="box" id="s2tOptBox" hidden>
     <h2>② 轉換選項</h2>
 
-    <label class="field-label">標準字形</label>
+    <label class="field-label">用邊個地方嘅寫法？</label>
     <div class="seg" id="s2tVariantSeg">
-      <button type="button" class="active" data-variant="hk">🇭🇰 香港標準</button>
-      <button type="button" data-variant="tw">🇹🇼 台灣標準</button>
-      <button type="button" data-variant="raw">OpenCC 原樣</button>
+      <button type="button" class="active" data-variant="hk">🇭🇰 香港</button>
+      <button type="button" data-variant="tw">🇹🇼 台灣</button>
+      <button type="button" data-variant="raw">📜 OpenCC 原樣</button>
     </div>
-    <div class="note">OpenCC 原始嘅 s2t 表用緊舊異體字（<code>为→爲</code>、<code>里→裏</code>），要再過一層港／台字形表先合乎現代標準。香港：<code>为→為</code>、<code>里→裏</code>；台灣：<code>为→為</code>、<code>里→裡</code>。</div>
+    <div class="note">
+      同一個簡體字，香港同台灣可以寫法唔同。例如簡體「<code>里</code>」（裏面嘅意思）：<br>
+      　🇭🇰 香港寫「<b>裏</b>」　　🇹🇼 台灣寫「<b>裡</b>」<br><br>
+      <b>OpenCC 原樣</b>係唔經任何地區調整嘅原始轉換表。佢會用返一啲舊寫法，例如「为」會變「<b>爲</b>」而唔係「為」、「里」會變「裏」。
+      呢個係俾學術用途或者想自己控制嘅人用；<b>日常文件請揀香港或台灣</b>。<br><br>
+      喺香港用 → 揀香港。俾台灣客／同事睇 → 揀台灣。唔肯定 → 揀香港。
+    </div>
 
+    <div id="s2tAdvOpts">
     <label class="field-label" style="margin-top:14px">字型處理</label>
     <div class="seg" id="s2tRedrawSeg">
       <button type="button" class="active" data-redraw="changed">✏️ 只換需要改嘅字</button>
@@ -715,7 +741,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </label>
 
     <label class="field-label" style="margin-top:14px">詞組優先表（每行一個 <code>簡詞=繁詞</code>，優先過內建詞庫）</label>
-    <textarea id="s2tPhrases" rows="4" placeholder="复习=溫習&#10;面条=麵條&#10;信息=資訊"></textarea>
+    <textarea id="s2tPhrases" rows="4" placeholder="呢度預設係空白。㩒下面粒掣就會載入一批香港常用詞。"></textarea>
     <div class="export-row" style="margin-top:8px">
       <button class="btn secondary" id="s2tSampleList" style="padding:6px 12px;font-size:.84rem">📋 載入常用範例</button>
       <span style="font-size:.82rem;color:var(--ink-soft);align-self:center">內建已經有 OpenCC 嘅 9,726 條詞組，呢度淨係用嚟補漏或者改港式用詞。前後字數要一樣。</span>
@@ -727,8 +753,14 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </label>
 
     <label class="field-label">人手指定（每行一個 <code>簡=繁</code>，會蓋過自動轉換）</label>
-    <textarea id="s2tOverrides" rows="3" placeholder="周=周&#10;干=乾&#10;发=髮"></textarea>
-    <div class="note">一個簡體字對應多個繁體字（发→發/髮、干→乾/幹、里→裡/裏）要靠上下文判斷，詞組表處理到大部分但一定有走漏。喺下面嘅對照清單㩒一下任何一項，就會自動加落呢度畀你改。</div>
+    <textarea id="s2tOverrides" rows="3" placeholder="呢度預設係空白，即係全部交俾自動轉換。"></textarea>
+    <div class="note">
+      ⚠️ <b>呢格預設係空嘅，唔好亂填。</b>喺呢度寫嘅規則會<b>全份文件一刀切</b>，唔理上下文。<br><br>
+      例如你寫 <code>发=髮</code>，就連「发生」都會變成「<b>髮</b>生」；寫 <code>干=乾</code>，「干部」就會變「<b>乾</b>部」、「若干」變「若<b>乾</b>」。<br><br>
+      一個簡體字對多個繁體字（发→發/髮、干→乾/幹/干、里→裡/裏）本身要睇上下文，<b>內建詞庫已經處理咗絕大部分</b>。
+      正確用法係：先轉換，喺下面嘅分析報告見到邊個字真係轉錯，先㩒一下加落嚟改。
+    </div>
+    </div>
 
     <div class="export-row">
       <button class="btn secondary" id="s2tReanalyze">🔍 重新分析</button>
@@ -3091,8 +3123,10 @@ wireDropzone($("s2tDrop"), $("s2tFileInput"), async files => {
     $("s2tFileList").innerHTML =
       `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
       `<span class="pages">共 ${S2.pdfjsDoc.numPages} 頁</span></li>`;
+    $("s2tModeBox").hidden = false;
     $("s2tFontBox").hidden = false;
     $("s2tOptBox").hidden = false;
+    if (s2tMode === "easy") s2tAutoLoadFont();
     $("s2tPreviewBox").hidden = true;
     setStatus(st, "✅ 已載入，分析緊…", "ok");
     await s2tAnalyze();
@@ -3156,11 +3190,38 @@ $("s2tRedrawSeg").addEventListener("click", e => {
 
 /* ---------- 詞組優先表 ---------- */
 const S2T_SAMPLE_PHRASES = [
-  "# 港式用詞（改完前後字數要一樣）",
-  "复习=溫習", "面条=麵條", "信息=資訊", "视频=影片", "软件=軟件",
-  "打印=列印", "自行车=單車", "冰箱=雪櫃", "公交=巴士",
-  "# 內建詞庫已處理嘅例子（唔使再寫，淨係示範格式）",
-  "这里=這裏", "重复=重複", "答复=答覆", "准备=準備", "历史=歷史"
+  "# ⚠️ 呢啲係「大陸用詞 → 港式用詞」，唔係簡繁轉換。",
+  "# 只想轉繁體嘅話唔使用呢個表 —— 內建詞庫已經搞掂。",
+  "# 規則：前後字數一定要一樣，唔夠就唔會生效。",
+  "",
+  "# ── 電腦 / 科技 ──",
+  "软件=軟件", "硬件=硬件", "网络=網絡", "信息=資訊", "数据=數據",
+  "视频=影片", "音频=音訊", "打印=列印", "屏幕=螢幕", "鼠标=滑鼠",
+  "硬盘=硬碟", "文件夹=資料夾", "服务器=伺服器", "程序员=程式員",
+  "移动网=流動網", "智能=智能", "在线=網上", "下载=下載", "登录=登入",
+  "",
+  "# ── 交通 ──",
+  "公交=巴士", "地铁=地鐵", "摩托车=電單車",
+  "# ⚠️ 「出租车→的士」「自行车→單車」寫唔到，因為前後字數唔同（3字→2字）。",
+  "# 呢個限制係為咗唔郁到原本嘅字位。要改呢類詞，就要用第啲工具。",
+  "停车场=停車場", "高速路=高速路",
+  "",
+  "# ── 日常 / 家居 ──",
+  "冰箱=雪櫃", "空调=冷氣", "方便面=即食麵", "面条=麵條", "土豆=薯仔",
+  "西红柿=西紅柿", "菠萝=菠蘿", "酸奶=乳酪", "早餐=早餐", "垃圾桶=垃圾桶",
+  "",
+  "# ── 學校 / 工作 ──",
+  "复习=溫習", "考试=考試", "小学=小學", "初中=初中", "本科=學士",
+  "简历=履歷", "工资=薪金", "老板=老闆", "员工=員工", "会议=會議",
+  "报告=報告", "项目=項目", "质量=質素", "水平=水平",
+  "",
+  "# ── 政府 / 金融 ──",
+  "身份证=身份證", "护照=護照", "银行卡=銀行卡", "存款=存款", "利息=利息",
+  "保险=保險", "税务=稅務", "发票=發票", "合同=合約", "房地产=房地產",
+  "",
+  "# ── 內建詞庫已經處理，唔使抄，淨係示範格式 ──",
+  "这里=這裏", "重复=重複", "答复=答覆", "准备=準備", "历史=歷史",
+  "干净=乾淨", "干部=幹部", "头发=頭髮", "发生=發生", "里面=裏面"
 ].join("\n");
 $("s2tSampleList").onclick = () => {
   const ta = $("s2tPhrases");
@@ -3189,6 +3250,81 @@ function s2tWireFontDrop(){
   input.addEventListener("change", () => { if (input.files.length) take(input.files); input.value = ""; });
 }
 s2tWireFontDrop();
+
+/* 將指定字型套用落所有原字型（簡易模式用） */
+function s2tAssignAll(fontId){
+  for (const fam of (S2.famOrder || [])) S2.assign[fam] = fontId;
+}
+
+/* ---------- 自動取得繁體字型（唔使用家自己拖） ---------- */
+async function s2tAutoLoadFont(){
+  const st = $("s2tAutoFontStatus");
+  const had = S2.fonts.find(f => f.auto);
+  if (had){ s2tAssignAll(had.id); s2tRenderReport(); setStatus(st, "✅ 已經有字型喇。", "ok"); return; }
+  setStatus(st, "⏳ 攞緊字型…（第一次要等一陣，之後會有 cache）", "busy");
+  try {
+    const sup = await ensureCjkSupport();
+    if (!sup.ok || !sup.fontBytes) throw new Error(sup.reason || "載入失敗");
+    const bytes = new Uint8Array(sup.fontBytes);
+    const flav = window.S2T ? window.S2T.fontFlavour(bytes) : "unknown";
+    const id = String(S2.nextFontId++);
+    S2.fonts.push({ id, name: "思源黑體（自動）", bytes, flavour: flav, size: bytes.length, auto: true });
+    s2tAssignAll(id);
+    s2tRenderFontList(); s2tRenderReport();
+    setStatus(st, `✅ 已備妥思源黑體（${(bytes.length/1024/1024).toFixed(1)} MB），可以直接轉換。`, "ok");
+  } catch (e){
+    setStatus(st, "⚠️ 自動取得失敗：" + (e.message || e) +
+      "。請改用「用我電腦已裝嘅字型」，或者切去進階模式自己拖一隻 TTF 入嚟。", "warn");
+  }
+}
+$("s2tAutoFont").onclick = s2tAutoLoadFont;
+
+/* ---------- 用電腦本身已經裝咗嘅字型（Chrome / Edge 先有） ---------- */
+if (window.queryLocalFonts) $("s2tSysFont").hidden = false;
+$("s2tSysFont").onclick = async () => {
+  const st = $("s2tAutoFontStatus");
+  try {
+    setStatus(st, "⏳ 讀緊你電腦嘅字型清單…（瀏覽器會問你攞權限）", "busy");
+    const all = await window.queryLocalFonts();
+    const want = /(MingLiU|PMingLiU|MSJhengHei|MicrosoftJhengHei|DFKai|KaiTi|Noto.*(TC|HK)|Source ?Han|SimSun|PingFang|Heiti|Songti|BiauKai)/i;
+    const hits = all.filter(f => want.test(f.postscriptName) || want.test(f.fullName));
+    const pick = (hits.length ? hits : all).slice(0, 40);
+    if (!pick.length) throw new Error("搵唔到任何字型");
+    const name = prompt("你部電腦有以下中文字型，抄一個名貼返落嚟：\n\n" +
+      pick.map(f => f.fullName).join("\n"), pick[0].fullName);
+    if (!name) { setStatus(st, "取消咗。", ""); return; }
+    const hit = pick.find(f => f.fullName === name.trim()) || pick[0];
+    const blob = await hit.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const flav = window.S2T ? window.S2T.fontFlavour(bytes) : "unknown";
+    const id = String(S2.nextFontId++);
+    S2.fonts.push({ id, name: hit.fullName, bytes, flavour: flav, size: bytes.length, auto: true });
+    s2tAssignAll(id);
+    s2tRenderFontList(); s2tRenderReport();
+    setStatus(st, `✅ 已用「${hit.fullName}」。`, "ok");
+  } catch (e){
+    setStatus(st, "⚠️ 攞唔到系統字型：" + (e.message || e) + "。可以改用上面粒自動取得掣。", "warn");
+  }
+};
+
+/* ---------- 簡易 / 進階模式 ---------- */
+const S2T_MODE_DESC = {
+  easy: "只需三步：上載 → 揀香港定台灣 → 撳轉換。字型自動搞掂，其他設定用最穩陣嘅預設值。<b>絕大部分情況揀呢個就得。</b>",
+  pro:  "開放曬所有設定：自己揀字型並逐隻指定、詞組優先表、人手指定對應、字型子集化等等。"
+};
+let s2tMode = "easy";
+function s2tApplyMode(mode){
+  s2tMode = mode;
+  const easy = mode === "easy";
+  $("s2tModeDesc").innerHTML = S2T_MODE_DESC[mode];
+  $("s2tFontAdv").hidden = easy;
+  $("s2tFontTtfNote").hidden = easy;
+  $("s2tAdvOpts").hidden = easy;
+  // 只喺已經上載咗 PDF 之後先去攞字型，唔好一開網頁就下載 5MB
+  if (easy && S2.buf) s2tAutoLoadFont();
+}
+wireSeg($("s2tModeSeg"), s2tApplyMode);
+s2tApplyMode("easy");
 
 async function s2tAddFonts(files){
   const st = $("s2tFontStatus");
