@@ -2741,8 +2741,8 @@ async function ocrGetWorker(lang, speed, onProg){
    Tesseract 全部保留，隨時揀返。
 ===================================================== */
 const PADDLE_SOURCES = [
-  "lib/ppu-paddle-ocr/web.js",              // ① 自己 host（最穩，離線都行）
-  "https://esm.sh/ppu-paddle-ocr/web"        // ② CDN 後備（唔鎖版本，攞最新）
+  "./lib/ppu-paddle-ocr/web.js",             // ① 自己 host（要用 ./ 開頭，否則當成 bare specifier）
+  "https://esm.sh/ppu-paddle-ocr/web"         // ② CDN 後備（唔鎖版本，攞最新）
 ];
 // 路徑對照官方 repo 檔案樹。中文係「預設模型」，放喺 recognition/ 根目錄，
 // 冇 multi/ch/ 呢個資料夾（我之前估錯咗，所以 404）。
@@ -2784,15 +2784,19 @@ async function ocrEnsurePaddle(st){
   const Svc = mod.PaddleOcrService || (mod.default && mod.default.PaddleOcrService);
   if (!Svc) throw new Error("PaddleOCR 模組結構認唔到（key: " + Object.keys(mod).join(", ") + "）");
 
-  // 自己 host 咗就用本機嗰份，否則用官方 repo
-  const local = async p => {
-    try { const r = await fetch(p, { method: "HEAD" }); return r.ok ? p : null; } catch(e){ return null; }
-  };
+  // 自己 host 咗就用本機嗰份。先睇有冇 marker 檔，
+  // 避免每次都撞三個 404，喺 Console 出一堆嚇死人嘅紅字。
   const T = PADDLE_TIERS[ocrTier] || PADDLE_TIERS.tiny;
-  const det  = (await local(`lib/paddle-models/${ocrTier}-det.onnx`)) || T.det;
-  const rec  = (await local(`lib/paddle-models/${ocrTier}-rec.onnx`)) || T.rec;
-  const dict = (await local(`lib/paddle-models/${ocrTier}-dict.txt`)) || T.dict;
-  console.log("[Paddle] 模型:", { det, rec, dict });
+  let det = T.det, rec = T.rec, dict = T.dict;
+  try {
+    const m = await fetch("lib/paddle-models/USE_LOCAL", { method: "HEAD" });
+    if (m.ok){
+      det  = `lib/paddle-models/${ocrTier}-det.onnx`;
+      rec  = `lib/paddle-models/${ocrTier}-rec.onnx`;
+      dict = `lib/paddle-models/${ocrTier}-dict.txt`;
+    }
+  } catch(e){ /* 冇 marker 就用網上嗰份，正常情況 */ }
+  console.log("[Paddle] 模型:", { tier: ocrTier, det, rec, dict });
 
   const svc = new Svc({
     model: { detection: det, recognition: rec, charactersDictionary: dict },
@@ -2821,10 +2825,25 @@ function ocrIsPinyin(t){
   return hit / words.length >= 0.75;      // 大部分係拼音音節
 }
 
-/* ---------- PaddleOCR 結果 → 我哋原本嘅 lines 結構 ---------- */
+/* ---------- PaddleOCR 結果 → 我哋原本嘅 lines 結構 ----------
+   官方型別（v6）：
+     預設 flatten:false → { text, lines: RecognitionResult[][], confidence }
+     flatten:true       → { text, results: RecognitionResult[], confidence }
+   RecognitionResult = { text, box:{x,y,width,height}, confidence }
+   兩種都照顧，免得將來改咗又靜靜哋出零。                        */
+function ocrPaddleItems(res){
+  if (!res) return [];
+  if (Array.isArray(res.results)) return res.results;                  // flatten:true
+  if (Array.isArray(res.lines))   return res.lines.flat();             // 預設，二維
+  if (Array.isArray(res.boxes))   return res.boxes;
+  if (Array.isArray(res))         return res.flat ? res.flat() : res;
+  return [];
+}
+
 function ocrPaddleToLines(res, dpi, opts){
   const k = 72 / dpi;
-  const list = (res && (res.results || res.boxes || res.lines)) || [];
+  const list = ocrPaddleItems(res);
+  if (!list.length) console.warn("[Paddle] 攞唔到任何區塊，回傳結構 =", res && Object.keys(res));
   const lines = [];
   let dropPy = 0, dropConf = 0;
   for (const r of list){
@@ -3228,7 +3247,8 @@ $("ocrGo").onclick = async () => {
         const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
         lines = ocrToLines(data, ocrDpi);
       } else {
-        const res = await OCR.paddle.recognize(canvas);
+        const res = await OCR.paddle.recognize(canvas, { flatten: true });
+        if (i === 0) console.log("[Paddle] 首頁回傳:", res);
         lines = ocrPaddleToLines(res, ocrDpi, { dropPinyin: ocrDropPinyin, minConf: ocrMinConf });
         totDropPy += lines._dropPy || 0; totDropConf += lines._dropConf || 0;
       }
