@@ -3091,58 +3091,52 @@ $("ocrGo").onclick = async () => {
    呢個就係 OCRmyPDF 用嘅做法。
 ===================================================== */
 
-/* ---------- 簡→繁：借用 lib/s2t-dict.js 嘅對照表 ---------- */
+/* ---------- 簡→繁：用自己嘅對照表（lib/ocr-s2t.js） ----------
+   舊版靠估 lib/s2t-dict.js 嘅結構，估唔中就靜靜哋唔轉，
+   出嚟仲係簡體都唔會報錯。而家改用自帶嘅表，冇得估錯。 */
 let _s2tCharMap = null;
 async function ocrGetS2TMap(){
   if (_s2tCharMap) return _s2tCharMap;
-  if (!window.S2T_DICT){
-    try { await loadScript("lib/s2t-dict.js"); } catch(e){ console.warn(e); }
+  if (!window.OCR_S2T){
+    try { await loadScript("lib/ocr-s2t.js"); } catch(e){ console.warn(e); }
   }
-  const D = window.S2T_DICT;
-  if (!D) throw new Error("載入唔到 lib/s2t-dict.js");
-
-  // 字典結構喺唔同版本可能唔同，逐個試
-  const pickMap = (...cands) => {
-    for (const c of cands){
-      if (!c) continue;
-      if (c instanceof Map && c.size) return c;
-      if (typeof c === "object" && Object.keys(c).length) return new Map(Object.entries(c));
-    }
-    return null;
-  };
-  let chars = pickMap(D.char, D.chars, D.s2t, D.map, D.single, D.st);
-  // 只有 alt（一對多）嘅話，攞第一個做預設
-  if (!chars && D.alt && Object.keys(D.alt).length){
-    chars = new Map(Object.entries(D.alt).map(([k, v]) =>
-      [k, Array.isArray(v) ? v[0] : String(v)]));
+  const D = window.OCR_S2T;
+  if (!D || !D.c || !Object.keys(D.c).length){
+    throw new Error("載入唔到 lib/ocr-s2t.js（簡繁對照表），請確認個檔案已經放入 lib/ 資料夾");
   }
-  const phrases = pickMap(D.phrase, D.phrases, D.word, D.words, D.multi);
-  if (!chars && !phrases){
-    console.warn("[S2T] 字典結構認唔到，頂層 key =", Object.keys(D));
-    throw new Error("認唔到字典結構（頂層 key：" + Object.keys(D).join(", ") + "）");
-  }
-  _s2tCharMap = { chars: chars || new Map(), phrases: phrases || new Map() };
-  return _s2tCharMap;
+  _s2tCharMap = D;
+  return D;
 }
 
-function ocrConvertS2T(text, dict, variant){
+function ocrConvertS2T(text, D, variant){
   if (!text) return text;
-  let out = "";
-  const maxLen = 4;
-  for (let i = 0; i < text.length; ){
+  let out = "", i = 0;
+  while (i < text.length){
     let hit = null;
-    for (let L = Math.min(maxLen, text.length - i); L >= 2; L--){
+    for (let L = Math.min(4, text.length - i); L >= 2; L--){
       const seg = text.substr(i, L);
-      if (dict.phrases.has(seg)){ hit = [seg, dict.phrases.get(seg)]; break; }
+      if (D.p[seg] !== undefined){ hit = [seg, D.p[seg]]; break; }
     }
     if (hit){ out += hit[1]; i += hit[0].length; continue; }
     const c = text[i];
-    out += dict.chars.has(c) ? dict.chars.get(c) : c;
+    out += (D.c[c] !== undefined ? D.c[c] : c);
     i++;
   }
-  // 港／台字形微調
-  const V = { hk: { "裡": "裏" }, tw: { "裏": "裡" } }[variant] || {};
-  return [...out].map(c => V[c] || c).join("");
+  // 台灣仲要過多一層慣用詞（例如 里面→裡面）
+  if (variant === "tw" && D.twp){
+    let o2 = "", j = 0;
+    while (j < out.length){
+      let h = null;
+      for (let L = Math.min(4, out.length - j); L >= 2; L--){
+        const seg = out.substr(j, L);
+        if (D.twp[seg] !== undefined){ h = [seg, D.twp[seg]]; break; }
+      }
+      if (h){ o2 += h[1]; j += h[0].length; } else { o2 += out[j]; j++; }
+    }
+    out = o2;
+  }
+  const V = (variant === "hk" ? D.hk : D.tw) || {};
+  return [...out].map(c => V[c] !== undefined ? V[c] : c).join("");
 }
 
 /* ---------- 產生可搜尋 PDF ---------- */
@@ -3190,10 +3184,25 @@ async function ocrBuildSearchablePdf(opts){
                  setTextRenderingMode(TextRenderingMode.Invisible)];
 
     for (const line of pg.lines){
-      for (const it of line.items){
-        let s = it.str;
-        if (dict) s = ocrConvertS2T(s, dict, variant);
-        if (!s.trim()) continue;
+      // 中文詞組跨越多個方框（Tesseract 逐隻字交返嚟），
+      // 所以要成行一齊轉，先至查得中「头发→頭髮」呢類詞組，
+      // 轉完再按原本嘅字數派返落每一個方框。
+      let strs = line.items.map(it => it.str);
+      if (dict){
+        const joined = strs.join("");
+        const conv = ocrConvertS2T(joined, dict, variant);
+        if ([...conv].length === [...joined].length){
+          const arr = [...conv];
+          let k = 0;
+          strs = strs.map(s => { const n = [...s].length; const out = arr.slice(k, k + n).join(""); k += n; return out; });
+        } else {
+          strs = strs.map(s => ocrConvertS2T(s, dict, variant));  // 字數對唔上就逐個轉
+        }
+      }
+      for (let idx = 0; idx < line.items.length; idx++){
+        const it = line.items[idx];
+        const s = strs[idx];
+        if (!s || !s.trim()) continue;
 
         // 字型入面冇嘅字（例如奇怪符號）就跳過，唔好搞爛個檔案
         let encoded;
