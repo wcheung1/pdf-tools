@@ -667,6 +667,40 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="status" id="ocrExportStatus"></div>
   </div>
+
+  <div class="box" id="ocrPdfBox" hidden>
+    <h2>⭐ 匯出可搜尋 PDF（保留原本版面）</h2>
+    <p class="desc">
+      喺原本張掃描圖上面，疊一層<b>睇唔到但揀得到</b>嘅文字。
+      張圖<b>一個 pixel 都唔會郁</b>，所以版面、字體、圖片、排位全部同原檔一模一樣，
+      但你可以 highlight、複製、Ctrl+F 搜尋。
+    </p>
+
+    <label class="field-label">文字層用邊種字？</label>
+    <div class="seg" id="ocrPdfLangSeg">
+      <button class="active" data-view="trad">繁 轉做繁體</button>
+      <button data-view="orig">原樣（簡體）</button>
+    </div>
+
+    <div id="ocrPdfVariantWrap">
+      <label class="field-label" style="margin-top:12px">繁體用邊個地方嘅寫法？</label>
+      <div class="seg" id="ocrPdfVariantSeg">
+        <button class="active" data-view="hk">🇭🇰 香港</button>
+        <button data-view="tw">🇹🇼 台灣</button>
+      </div>
+    </div>
+
+    <div class="note warn" style="margin-top:12px">
+      ⚠️ <b>畫面上見到嘅字仍然係簡體</b> —— 因為嗰啲係相入面嘅像素，唔係文字。
+      呢個功能改嘅係「揀得到 / 搜尋得到 / 複製得到」嗰層。
+      複製出嚟會係繁體，但個樣仲係原本張掃描圖。
+    </div>
+
+    <div class="toolbar" style="position:static">
+      <button class="btn big" style="width:auto" id="ocrExportPdf">⬇️ 匯出可搜尋 PDF</button>
+    </div>
+    <div class="status" id="ocrPdfStatus"></div>
+  </div>
 </section>
 
 <!-- ============ 10. 簡轉繁 ============ -->
@@ -2665,6 +2699,7 @@ async function ocrGetWorker(lang, speed, onProg){
 async function ocrRenderPage(pageNo, dpi){
   const page = await OCR.pdfjsDoc.getPage(pageNo);
   const viewport = page.getViewport({ scale: dpi / 72 });
+  const base = page.getViewport({ scale: 1 });
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
@@ -2672,8 +2707,9 @@ async function ocrRenderPage(pageNo, dpi){
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: ctx, viewport }).promise;
+  const geo = { vw: base.width, vh: base.height, rotate: (page.rotate || 0) % 360 };
   page.cleanup();
-  return canvas;
+  return { canvas, geo };
 }
 
 /* ---------- Tesseract 結果 → 你原本嗰個 lines 結構 ----------
@@ -2708,17 +2744,28 @@ function ocrToLines(data, dpi){
     const size = Math.max(6, h * k);
     const words = (L.words || []).filter(w => w.text && w.text.trim());
     if (words.length){
-      const items = words.map(w => ({
-        x: ((w.bbox && w.bbox.x0) || 0) * k,
-        str: w.text,
-        size,
-        bold: !!(w.font_bold || (w.font_name && /bold|black|heavy/i.test(w.font_name)))
-      }));
+      const items = words.map(w => {
+        const b = w.bbox || {};
+        return {
+          x: (b.x0 || 0) * k,
+          str: w.text,
+          size,
+          bold: !!(w.font_bold || (w.font_name && /bold|black|heavy/i.test(w.font_name))),
+          // 隱形文字層要用嘅精確方框（PDF point，左上角原點）
+          bx: (b.x0 || 0) * k,
+          bw: Math.max(1, ((b.x1 || 0) - (b.x0 || 0)) * k),
+          bTop: (b.y0 || 0) * k,
+          bBot: (b.y1 || 0) * k
+        };
+      });
       items.sort((a, b) => a.x - b.x);
       lines.push({ y: -(bb.y0 || 0) * k, items });
     } else if (L.text && L.text.trim()){
       lines.push({ y: -(bb.y0 || 0) * k,
-                   items: [{ x: (bb.x0 || 0) * k, str: L.text.trim(), size, bold: false }] });
+                   items: [{ x: (bb.x0 || 0) * k, str: L.text.trim(), size, bold: false,
+                             bx: (bb.x0 || 0) * k,
+                             bw: Math.max(1, ((bb.x1 || 0) - (bb.x0 || 0)) * k),
+                             bTop: (bb.y0 || 0) * k, bBot: (bb.y1 || 0) * k }] });
     }
   }
   if (lines.length){
@@ -2994,10 +3041,10 @@ $("ocrGo").onclick = async () => {
       $("ocrProgText").textContent = `第 ${pageNo} 頁（${i + 1}／${pageList.length}）認緊字…${eta}`;
       setStatus(st, "⏳ 認字進行中，可以隨時撳「停止」。", "busy");
 
-      const canvas = await ocrRenderPage(pageNo, ocrDpi);
+      const { canvas, geo } = await ocrRenderPage(pageNo, ocrDpi);
       const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
       canvas.width = canvas.height = 0;          // 即刻放低記憶體
-      OCR.pages.push({ pageNo, lines: ocrToLines(data, ocrDpi) });
+      OCR.pages.push({ pageNo, lines: ocrToLines(data, ocrDpi), geo });
 
       if (ocrSpeed === "eco") await new Promise(r => setTimeout(r, 120));  // 抖一抖，唔好霸死部機
     }
@@ -3026,6 +3073,7 @@ $("ocrGo").onclick = async () => {
       setStatus(st, OCR.abort ? "⏹️ 已停止。" : "✅ 搞掂！可以喺下面改錯字再匯出。", "ok");
     }
     $("ocrResultBox").hidden = false;
+    $("ocrPdfBox").hidden = (chars === 0);
     $("ocrProgText").textContent = "";
   } catch (err){
     console.error(err);
@@ -3035,6 +3083,174 @@ $("ocrGo").onclick = async () => {
     $("ocrGo").disabled = false;
     $("ocrStop").hidden = true;
   }
+};
+
+/* =====================================================
+   匯出「可搜尋 PDF」：原本張掃描圖一個 pixel 都唔郁，
+   淨係喺上面疊一層「睇唔到但揀得到」嘅文字。
+   呢個就係 OCRmyPDF 用嘅做法。
+===================================================== */
+
+/* ---------- 簡→繁：借用 lib/s2t-dict.js 嘅對照表 ---------- */
+let _s2tCharMap = null;
+async function ocrGetS2TMap(){
+  if (_s2tCharMap) return _s2tCharMap;
+  if (!window.S2T_DICT){
+    try { await loadScript("lib/s2t-dict.js"); } catch(e){ console.warn(e); }
+  }
+  const D = window.S2T_DICT;
+  if (!D) throw new Error("載入唔到 lib/s2t-dict.js");
+
+  // 字典結構喺唔同版本可能唔同，逐個試
+  const pickMap = (...cands) => {
+    for (const c of cands){
+      if (!c) continue;
+      if (c instanceof Map && c.size) return c;
+      if (typeof c === "object" && Object.keys(c).length) return new Map(Object.entries(c));
+    }
+    return null;
+  };
+  let chars = pickMap(D.char, D.chars, D.s2t, D.map, D.single, D.st);
+  // 只有 alt（一對多）嘅話，攞第一個做預設
+  if (!chars && D.alt && Object.keys(D.alt).length){
+    chars = new Map(Object.entries(D.alt).map(([k, v]) =>
+      [k, Array.isArray(v) ? v[0] : String(v)]));
+  }
+  const phrases = pickMap(D.phrase, D.phrases, D.word, D.words, D.multi);
+  if (!chars && !phrases){
+    console.warn("[S2T] 字典結構認唔到，頂層 key =", Object.keys(D));
+    throw new Error("認唔到字典結構（頂層 key：" + Object.keys(D).join(", ") + "）");
+  }
+  _s2tCharMap = { chars: chars || new Map(), phrases: phrases || new Map() };
+  return _s2tCharMap;
+}
+
+function ocrConvertS2T(text, dict, variant){
+  if (!text) return text;
+  let out = "";
+  const maxLen = 4;
+  for (let i = 0; i < text.length; ){
+    let hit = null;
+    for (let L = Math.min(maxLen, text.length - i); L >= 2; L--){
+      const seg = text.substr(i, L);
+      if (dict.phrases.has(seg)){ hit = [seg, dict.phrases.get(seg)]; break; }
+    }
+    if (hit){ out += hit[1]; i += hit[0].length; continue; }
+    const c = text[i];
+    out += dict.chars.has(c) ? dict.chars.get(c) : c;
+    i++;
+  }
+  // 港／台字形微調
+  const V = { hk: { "裡": "裏" }, tw: { "裏": "裡" } }[variant] || {};
+  return [...out].map(c => V[c] || c).join("");
+}
+
+/* ---------- 產生可搜尋 PDF ---------- */
+async function ocrBuildSearchablePdf(opts){
+  const { toTraditional, variant, onProg } = opts;
+  onProg && onProg("準備緊字型…");
+
+  const sup = await ensureCjkSupport();
+  if (!sup.ok || !sup.fontBytes) throw new Error("攞唔到中文字型：" + (sup.reason || "未知原因"));
+
+  let dict = null;
+  if (toTraditional){
+    onProg && onProg("載入緊簡繁對照表…");
+    dict = await ocrGetS2TMap();
+  }
+
+  onProg && onProg("開緊原本個 PDF…");
+  const doc = await PDFLib.PDFDocument.load(OCR.buf.slice(0), { ignoreEncryption: true });
+  doc.registerFontkit(window.fontkit);
+
+  let font;
+  try {
+    font = await doc.embedFont(sup.fontBytes.slice(0), { subset: true });
+  } catch (e){
+    console.warn("[可搜尋PDF] 子集化失敗，改用完整嵌入", e);
+    font = await doc.embedFont(sup.fontBytes.slice(0));
+  }
+
+  const { TextRenderingMode, pushGraphicsState, popGraphicsState,
+          beginText, endText, setTextRenderingMode, setFontAndSize,
+          setTextMatrix, showText } = PDFLib;
+
+  const pages = doc.getPages();
+  let placed = 0, skippedRot = 0;
+
+  for (const pg of OCR.pages){
+    const page = pages[pg.pageNo - 1];
+    if (!page) continue;
+    const geo = pg.geo || {};
+    if (geo.rotate){ skippedRot++; continue; }   // 有旋轉嘅頁暫時唔處理，免得擺錯位
+
+    const pageH = page.getSize().height;
+    const fontName = page.node.newFontDictionary("OcrF", font.ref);
+    const ops = [pushGraphicsState(), beginText(),
+                 setTextRenderingMode(TextRenderingMode.Invisible)];
+
+    for (const line of pg.lines){
+      for (const it of line.items){
+        let s = it.str;
+        if (dict) s = ocrConvertS2T(s, dict, variant);
+        if (!s.trim()) continue;
+
+        // 字型入面冇嘅字（例如奇怪符號）就跳過，唔好搞爛個檔案
+        let encoded;
+        try { encoded = font.encodeText(s); } catch(e){ continue; }
+
+        const boxH = Math.max(1, (it.bBot || 0) - (it.bTop || 0));
+        const size = Math.max(1, boxH * 0.92);
+        // 橫向壓縮／拉長，令揀字嘅範圍啱啱蓋住原本嗰個字
+        let natural = 0;
+        try { natural = font.widthOfTextAtSize(s, size); } catch(e){ natural = 0; }
+        const sx = (natural > 0.5 && it.bw > 0) ? Math.min(4, it.bw / natural) : 1;
+        const baseline = pageH - (it.bBot || 0) + boxH * 0.12;
+
+        ops.push(setFontAndSize(fontName, size));
+        ops.push(setTextMatrix(sx, 0, 0, 1, it.bx || 0, baseline));
+        ops.push(showText(encoded));
+        placed++;
+      }
+    }
+    ops.push(endText(), popGraphicsState());
+    page.pushOperators(...ops);
+    onProg && onProg(`第 ${pg.pageNo} 頁已加文字層…`);
+  }
+
+  onProg && onProg("儲存緊…");
+  const bytes = await doc.save();
+  return { bytes, placed, skippedRot };
+}
+
+/* ---------- 可搜尋 PDF：掣同設定 ---------- */
+let ocrPdfLang = "trad", ocrPdfVariant = "hk";
+wireSeg($("ocrPdfLangSeg"), v => {
+  ocrPdfLang = v;
+  $("ocrPdfVariantWrap").hidden = (v !== "trad");
+});
+wireSeg($("ocrPdfVariantSeg"), v => { ocrPdfVariant = v; });
+
+$("ocrExportPdf").onclick = async () => {
+  const st = $("ocrPdfStatus");
+  if (!OCR.pages.length){ setStatus(st, "仲未認字。", "err"); return; }
+  const btn = $("ocrExportPdf");
+  btn.disabled = true;
+  try {
+    const r = await ocrBuildSearchablePdf({
+      toTraditional: ocrPdfLang === "trad",
+      variant: ocrPdfVariant,
+      onProg: m => setStatus(st, "⏳ " + m, "busy")
+    });
+    downloadBlob(new Blob([r.bytes], { type: "application/pdf" }),
+                 stripExt(OCR.name || "ocr") + "_可搜尋.pdf");
+    let msg = `✅ 搞掂！已加入 ${r.placed} 個可揀嘅文字，原本張圖完全冇郁過。`;
+    if (r.skippedRot) msg += ` ⚠️ 有 ${r.skippedRot} 版因為頁面有旋轉，暫時略過咗。`;
+    setStatus(st, msg, r.skippedRot ? "warn" : "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  } finally { btn.disabled = false; }
 };
 
 /* ---------- 匯出 ---------- */
