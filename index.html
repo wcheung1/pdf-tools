@@ -2840,18 +2840,32 @@ function ocrPaddleItems(res){
   return [];
 }
 
+/* ---------- 濾走冇意義嘅碎片 ----------
+   偵測器會將裝飾符號、引號殘影、頁邊小點當成文字，
+   出嚟就係 "99"、"●"、"·"、"•.."、"、。" 呢類雜訊。 */
+function ocrIsJunk(t){
+  const s = t.trim();
+  if (!s) return true;
+  if (/[\u4e00-\u9fff]/.test(s)) return false;            // 有漢字一定留
+  if (/^[0-9]{1,2}$/.test(s)) return true;                // 孤零零一兩個數字（多數係引號殘影或頁碼碎片）
+  if (/[A-Za-z]{3,}/.test(s)) return false;               // 有正經英文字就留
+  if (/[0-9]{3,}/.test(s)) return false;                  // 長數字串（ISBN、電話）留
+  return s.length <= 4;                                    // 短又全係符號 → 掉
+}
+
 function ocrPaddleToLines(res, dpi, opts){
   const k = 72 / dpi;
   const list = ocrPaddleItems(res);
   if (!list.length) console.warn("[Paddle] 攞唔到任何區塊，回傳結構 =", res && Object.keys(res));
   const lines = [];
-  let dropPy = 0, dropConf = 0;
+  let dropPy = 0, dropConf = 0, dropJunk = 0;
   for (const r of list){
     const t = (r.text || "").trim();
     const b = r.box || r.bbox;
     if (!t || !b) continue;
     const conf = (typeof r.confidence === "number") ? r.confidence : 1;
     if (opts.dropPinyin && ocrIsPinyin(t)){ dropPy++; continue; }
+    if (opts.dropJunk && ocrIsJunk(t)){ dropJunk++; continue; }
     if (conf < opts.minConf){ dropConf++; continue; }
     const x = (b.x !== undefined ? b.x : b.x0) * k;
     const y = (b.y !== undefined ? b.y : b.y0) * k;
@@ -2863,8 +2877,13 @@ function ocrPaddleToLines(res, dpi, opts){
                 bx: x, bw: Math.max(1, w), bTop: y, bBot: y + h }]
     });
   }
-  lines.sort((a, b) => b.y - a.y);
-  lines._dropPy = dropPy; lines._dropConf = dropConf;
+  // 由上到下、同一行再由左到右（同一行嘅判斷用行高一半做容差）
+  lines.sort((a, b) => {
+    const ha = a.items[0].bBot - a.items[0].bTop;
+    if (Math.abs(a.y - b.y) > ha * 0.5) return b.y - a.y;
+    return a.items[0].bx - b.items[0].bx;
+  });
+  lines._dropPy = dropPy; lines._dropConf = dropConf; lines._dropJunk = dropJunk;
   return lines;
 }
 
@@ -3125,7 +3144,7 @@ wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
 
 /* ---------- 設定掣 ---------- */
 let ocrDpi = 200, ocrSpeed = "eco", ocrLayout = "flow";
-let ocrEngine = "paddle", ocrDropPinyin = true, ocrMinConf = 0.7, ocrTier = "tiny";
+let ocrEngine = "paddle", ocrDropPinyin = true, ocrDropJunk = true, ocrMinConf = 0.7, ocrTier = "tiny";
 
 const OCR_ENGINE_DESC = {
   paddle: "PP-OCR 模型。實測同一頁：<b>準確率 98.3%</b>（Tesseract 得 81%）。識分開拼音同漢字，每個區塊有信心分數。有 WebGPU 就自動用 GPU。<b>第一次要下載模型（約 10-20MB）。</b>",
@@ -3227,7 +3246,7 @@ $("ocrGo").onclick = async () => {
     }
 
     OCR.pages = [];
-    let totDropPy = 0, totDropConf = 0;
+    let totDropPy = 0, totDropConf = 0, totDropJunk = 0;
     for (let i = 0; i < pageList.length; i++){
       if (OCR.abort) break;
       const pageNo = pageList[i];
@@ -3247,17 +3266,19 @@ $("ocrGo").onclick = async () => {
         const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
         lines = ocrToLines(data, ocrDpi);
       } else {
-        const res = await OCR.paddle.recognize(canvas, { flatten: true });
+        // noCache 一定要開：佢個快取 key 只睇頭 1024 bytes + 總長度，
+        // 同一份 PDF 裏面版式相近嘅頁會撞 key，第 5 頁之後全部攞返第 5 頁嘅結果。
+        const res = await OCR.paddle.recognize(canvas, { flatten: true, noCache: true });
         if (i === 0) console.log("[Paddle] 首頁回傳:", res);
-        lines = ocrPaddleToLines(res, ocrDpi, { dropPinyin: ocrDropPinyin, minConf: ocrMinConf });
-        totDropPy += lines._dropPy || 0; totDropConf += lines._dropConf || 0;
+        lines = ocrPaddleToLines(res, ocrDpi, { dropPinyin: ocrDropPinyin, dropJunk: ocrDropJunk, minConf: ocrMinConf });
+        totDropPy += lines._dropPy || 0; totDropConf += lines._dropConf || 0; totDropJunk += lines._dropJunk || 0;
       }
       canvas.width = canvas.height = 0;          // 即刻放低記憶體
       OCR.pages.push({ pageNo, lines, geo });
 
       if (ocrSpeed === "eco") await new Promise(r => setTimeout(r, 120));  // 抖一抖，唔好霸死部機
     }
-    OCR.dropStats = { py: totDropPy, conf: totDropConf };
+    OCR.dropStats = { py: totDropPy, conf: totDropConf, junk: totDropJunk };
 
     $("ocrProgBar").style.width = "100%";
     if (!OCR.pages.length){ setStatus(st, "⚠️ 冇認到任何文字。", "warn"); return; }
@@ -3279,6 +3300,7 @@ $("ocrGo").onclick = async () => {
       const d = OCR.dropStats || { py: 0, conf: 0 };
       let extra = "";
       if (d.py)   extra += `，隔走咗 ${d.py} 個拼音區塊`;
+      if (d.junk) extra += `，清走咗 ${d.junk} 個雜訊碎片`;
       if (d.conf) extra += `，濾走咗 ${d.conf} 個低信心區塊`;
       $("ocrResultInfo").className = "status ok";
       $("ocrResultInfo").textContent =
