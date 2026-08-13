@@ -608,6 +608,16 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <p class="desc" id="ocrEngineDesc" style="margin-top:6px"></p>
 
     <div id="ocrPaddleOpts">
+      <label class="field-label" style="margin-top:12px">模型大小</label>
+      <div class="seg" id="ocrTierSeg">
+        <button class="active" data-view="tiny">🐇 tiny（你試過，98.3%）</button>
+        <button data-view="small">⚖️ small</button>
+        <button data-view="medium">🎯 medium（最準）</button>
+      </div>
+      <p class="desc" style="margin-top:6px">
+        由細至大，愈大愈準但下載愈多、行得愈慢。<b>公司機用 tiny，屋企部 5090 可以試 medium。</b>
+      </p>
+
       <label class="field-label" style="margin-top:12px">拼音點處理？</label>
       <div class="seg" id="ocrPinyinSeg">
         <button class="active" data-view="drop">🚫 丟走拼音（推薦）</button>
@@ -2731,17 +2741,37 @@ async function ocrGetWorker(lang, speed, onProg){
    Tesseract 全部保留，隨時揀返。
 ===================================================== */
 const PADDLE_SOURCES = [
-  "lib/ppu-paddle-ocr/web.js",                    // ① 自己 host（最穩，離線都行）
-  "https://esm.sh/ppu-paddle-ocr@5/web"            // ② CDN 後備
+  "lib/ppu-paddle-ocr/web.js",              // ① 自己 host（最穩，離線都行）
+  "https://esm.sh/ppu-paddle-ocr/web"        // ② CDN 後備（唔鎖版本，攞最新）
 ];
-const PADDLE_MODELS = {
-  det:  "https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/refs/heads/main/detection/PP-OCRv5_mobile_det_infer.onnx",
-  rec:  "https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/refs/heads/main/recognition/multi/ch/v5/ch_PP-OCRv5_mobile_rec_infer.onnx",
-  dict: "https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/refs/heads/main/recognition/multi/ch/v5/ppocrv5_dict.txt"
+// 路徑對照官方 repo 檔案樹。中文係「預設模型」，放喺 recognition/ 根目錄，
+// 冇 multi/ch/ 呢個資料夾（我之前估錯咗，所以 404）。
+const P_MODEL = "https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main";
+const P_DICT  = "https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main";
+const PADDLE_TIERS = {
+  tiny: {
+    label: "tiny", note: "你試過嗰個，98.3%",
+    det:  `${P_MODEL}/detection/PP-OCRv6_tiny_det.onnx`,
+    rec:  `${P_MODEL}/recognition/PP-OCRv6_tiny_rec.onnx`,
+    dict: `${P_DICT}/recognition/ppocrv6_tiny_dict.txt`      // tiny 有自己專屬字典
+  },
+  small: {
+    label: "small", note: "大啲、準啲",
+    det:  `${P_MODEL}/detection/PP-OCRv6_small_det.onnx`,
+    rec:  `${P_MODEL}/recognition/PP-OCRv6_small_rec.onnx`,
+    dict: `${P_DICT}/recognition/ppocrv6_dict.txt`
+  },
+  medium: {
+    label: "medium", note: "最準，慢／大",
+    det:  `${P_MODEL}/detection/PP-OCRv6_medium_det.onnx`,
+    rec:  `${P_MODEL}/recognition/PP-OCRv6_medium_rec.onnx`,
+    dict: `${P_DICT}/recognition/ppocrv6_dict.txt`
+  }
 };
 
 async function ocrEnsurePaddle(st){
-  if (OCR.paddle) return OCR.paddle;
+  if (OCR.paddle && OCR.paddleTier === ocrTier) return OCR.paddle;
+  if (OCR.paddle){ try { await OCR.paddle.destroy(); } catch(e){} OCR.paddle = null; }
   setStatus(st, "⏳ 第一次使用，載入緊 PaddleOCR 引擎同模型…（要等一陣，之後有 cache）", "busy");
 
   let mod = null, lastErr = null;
@@ -2754,13 +2784,15 @@ async function ocrEnsurePaddle(st){
   const Svc = mod.PaddleOcrService || (mod.default && mod.default.PaddleOcrService);
   if (!Svc) throw new Error("PaddleOCR 模組結構認唔到（key: " + Object.keys(mod).join(", ") + "）");
 
-  // 自己 host 咗模型就用本機嗰份，否則用官方 repo
+  // 自己 host 咗就用本機嗰份，否則用官方 repo
   const local = async p => {
     try { const r = await fetch(p, { method: "HEAD" }); return r.ok ? p : null; } catch(e){ return null; }
   };
-  const det  = (await local("lib/paddle-models/det.onnx"))  || PADDLE_MODELS.det;
-  const rec  = (await local("lib/paddle-models/rec.onnx"))  || PADDLE_MODELS.rec;
-  const dict = (await local("lib/paddle-models/dict.txt"))  || PADDLE_MODELS.dict;
+  const T = PADDLE_TIERS[ocrTier] || PADDLE_TIERS.tiny;
+  const det  = (await local(`lib/paddle-models/${ocrTier}-det.onnx`)) || T.det;
+  const rec  = (await local(`lib/paddle-models/${ocrTier}-rec.onnx`)) || T.rec;
+  const dict = (await local(`lib/paddle-models/${ocrTier}-dict.txt`)) || T.dict;
+  console.log("[Paddle] 模型:", { det, rec, dict });
 
   const svc = new Svc({
     model: { detection: det, recognition: rec, charactersDictionary: dict },
@@ -2772,8 +2804,9 @@ async function ocrEnsurePaddle(st){
   let gpu = false;
   try { gpu = mod.isWebGpuAvailable ? await mod.isWebGpuAvailable() : false; } catch(e){}
   OCR.paddle = svc;
+  OCR.paddleTier = ocrTier;
   OCR.paddleGpu = gpu;
-  setStatus(st, `✅ PaddleOCR 已就緒（${gpu ? "WebGPU 加速" : "WASM 模式"}）`, "ok");
+  setStatus(st, `✅ PaddleOCR ${T.label} 已就緒（${gpu ? "WebGPU 加速" : "WASM 模式"}）`, "ok");
   return svc;
 }
 
@@ -3073,7 +3106,7 @@ wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
 
 /* ---------- 設定掣 ---------- */
 let ocrDpi = 200, ocrSpeed = "eco", ocrLayout = "flow";
-let ocrEngine = "paddle", ocrDropPinyin = true, ocrMinConf = 0.7;
+let ocrEngine = "paddle", ocrDropPinyin = true, ocrMinConf = 0.7, ocrTier = "tiny";
 
 const OCR_ENGINE_DESC = {
   paddle: "PP-OCR 模型。實測同一頁：<b>準確率 98.3%</b>（Tesseract 得 81%）。識分開拼音同漢字，每個區塊有信心分數。有 WebGPU 就自動用 GPU。<b>第一次要下載模型（約 10-20MB）。</b>",
@@ -3088,6 +3121,7 @@ function ocrApplyEngine(v){
 wireSeg($("ocrEngineSeg"), ocrApplyEngine);
 ocrApplyEngine("paddle");
 
+wireSeg($("ocrTierSeg"), v => { ocrTier = v; });
 wireSeg($("ocrPinyinSeg"), v => { ocrDropPinyin = (v === "drop"); });
 $("ocrConf").oninput = e => {
   ocrMinConf = parseFloat(e.target.value);
