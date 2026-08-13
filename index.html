@@ -655,7 +655,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button class="active" data-view="200">平衡 200</button>
       <button data-view="300">精細 300</button>
     </div>
-    <p class="desc" style="margin-top:6px">精細度愈高愈準，但慢一倍、食多一倍記憶體。字細嘅文件先需要 300。</p>
+    <p class="desc" style="margin-top:6px" id="ocrDpiDesc"></p>
 
     <label class="field-label">速度模式</label>
     <div class="seg" id="ocrSpeedSeg">
@@ -663,10 +663,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-view="fast">⚡ 全速（一頁接一頁，期間部機會鈍啲）</button>
     </div>
 
-    <div class="note warn">
-      ⚠️ 認中文本身慢，電腦差會更慢，<b>一頁大概 20 秒至 1 分鐘</b>。頁數多嘅話，建議先用「快速拆分」斬件。
-      中途撳「停止」可以隨時煞停，已經認完嘅頁數會保留。
-    </div>
+    <div class="note warn" id="ocrSpeedNote"></div>
 
     <div class="toolbar" style="position:static">
       <button class="btn big" style="width:auto" id="ocrGo">🔍 開始認字</button>
@@ -2840,6 +2837,16 @@ function ocrPaddleItems(res){
   return [];
 }
 
+/* 3752 秒睇落好嚇人，寫成「1 小時 3 分」易明好多 */
+function ocrFmtTime(s){
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + " 秒";
+  const m = Math.floor(s / 60), ss = s % 60;
+  if (m < 60) return ss ? `${m} 分 ${ss} 秒` : `${m} 分鐘`;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return mm ? `${h} 小時 ${mm} 分` : `${h} 小時`;
+}
+
 /* ---------- 濾走冇意義嘅碎片 ----------
    偵測器會將裝飾符號、引號殘影、頁邊小點當成文字，
    出嚟就係 "99"、"●"、"·"、"•.."、"、。" 呢類雜訊。 */
@@ -3155,18 +3162,41 @@ function ocrApplyEngine(v){
   $("ocrEngineDesc").innerHTML = OCR_ENGINE_DESC[v];
   $("ocrPaddleOpts").hidden = (v !== "paddle");
   $("ocrTessOpts").hidden   = (v !== "tesseract");
+  ocrRefreshHints();
+}
+
+/* 依引擎同設定，更新精細度說明同速度警告 */
+function ocrRefreshHints(){
+  const d = $("ocrDpiDesc"), n = $("ocrSpeedNote");
+  if (!d || !n) return;
+  if (ocrEngine === "paddle"){
+    const waste = ocrDpi >= 300;
+    d.innerHTML = "⚠️ <b>PaddleOCR 唔同 Tesseract</b>：佢偵測文字前會自動將圖縮到最多 1920px。" +
+      "A4 喺 200 DPI 已經係 2338px，<b>再調高只會慢，唔會準</b>（300 DPI 有一半像素直接被丟棄）。" +
+      (waste ? " <b style='color:#B4442E'>你而家揀咗 300，建議轉返 200。</b>" : " 建議用 200。");
+    const tierWarn = (ocrTier === "medium")
+      ? "medium 模型最準但最慢。<b>頁數多嘅話先用 tiny 跑一次睇下效果</b>，滿意再決定使唔使升級。"
+      : "";
+    n.innerHTML = "⏱️ 第一次會慢啲（要下載模型）。之後每頁通常幾秒。" +
+      (tierWarn ? "<br>" + tierWarn : "") +
+      "<br><b>建議先淨係認 1 頁</b>，睇實際用時再決定跑唔跑全本。中途撳「停止」隨時煞停，已完成嘅頁會保留。";
+  } else {
+    d.innerHTML = "精細度愈高愈準，但慢一倍、食多一倍記憶體。字細嘅文件先需要 300。";
+    n.innerHTML = "⚠️ Tesseract 認中文本身慢，電腦差會更慢，<b>一頁大概 20 秒至 1 分鐘</b>。" +
+      "頁數多嘅話，建議先用「快速拆分」斬件。中途撳「停止」可以隨時煞停，已經認完嘅頁數會保留。";
+  }
 }
 wireSeg($("ocrEngineSeg"), ocrApplyEngine);
 ocrApplyEngine("paddle");
 
-wireSeg($("ocrTierSeg"), v => { ocrTier = v; });
+wireSeg($("ocrTierSeg"), v => { ocrTier = v; ocrRefreshHints(); });
 wireSeg($("ocrPinyinSeg"), v => { ocrDropPinyin = (v === "drop"); });
 $("ocrConf").oninput = e => {
   ocrMinConf = parseFloat(e.target.value);
   $("ocrConfVal").textContent = ocrMinConf.toFixed(2);
 };
 
-wireSeg($("ocrDpiSeg"), v => { ocrDpi = parseInt(v); });
+wireSeg($("ocrDpiSeg"), v => { ocrDpi = parseInt(v); ocrRefreshHints(); });
 wireSeg($("ocrSpeedSeg"), v => { ocrSpeed = v; });
 
 const OCR_LAYOUT_DESC = {
@@ -3255,10 +3285,17 @@ $("ocrGo").onclick = async () => {
 
       const done = i;
       const eta = done > 0
-        ? `，估計仲要 ${Math.ceil((Date.now() - t0) / done * (pageList.length - done) / 1000)} 秒`
+        ? `，估計仲要 ${ocrFmtTime(Math.ceil((Date.now() - t0) / done * (pageList.length - done) / 1000))}`
         : "";
       $("ocrProgText").textContent = `第 ${pageNo} 頁（${i + 1}／${pageList.length}）認緊字…${eta}`;
-      setStatus(st, "⏳ 認字進行中，可以隨時撳「停止」。", "busy");
+      if (done === 1){
+        const per = Math.round((Date.now() - t0) / 1000);
+        const total = per * pageList.length;
+        setStatus(st, `⏳ 第一頁用咗 ${per} 秒 → 全部 ${pageList.length} 版約需 ${ocrFmtTime(total)}。` +
+          (total > 600 ? " <b>覺得太耐就撳「停止」，改用 tiny 模型或者調低精細度。</b>" : ""), "busy");
+      } else {
+        setStatus(st, "⏳ 認字進行中，可以隨時撳「停止」。", "busy");
+      }
 
       const { canvas, geo } = await ocrRenderPage(pageNo, ocrDpi);
       let lines;
