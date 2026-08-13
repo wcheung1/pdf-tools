@@ -3458,7 +3458,55 @@ function ocrConvertS2T(text, D, variant){
      ④ 抽唔到乾淨背景就跳過，寧願唔改都唔搞花
 ===================================================== */
 
-/* 一行嘅方框 → 逐個字嘅方框（中文等寬，英文標點按比例收窄） */
+/* 由原圖真正「睇」出每個字喺邊 ----------
+   之前靠「方框闊度 ÷ 字數」平均分配，喺字距疏嘅標題上面會漂移，
+   結果新字冚唔住舊字（封面出現「學」同「学」並排）。
+   而家改為掃描直方圖：搵出墨水嘅垂直空隙，切返真實字界。
+   切唔準（字數對唔上）就返 null，上層會跳過唔改。          */
+function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
+  if (nChars < 1) return null;
+  const X = Math.round(bx * sc), Y = Math.round(bTop * sc);
+  const W = Math.round(bw * sc), H = Math.round(bh * sc);
+  if (W < nChars * 3 || H < 4) return null;
+  let img;
+  try { img = ctx.getImageData(X, Y, W, H); } catch(e){ return null; }
+  const d = img.data;
+
+  // 每一直行嘅「墨水量」＝ 比背景暗幾多
+  const col = new Float64Array(W);
+  let bg = 0;
+  for (let i = 0; i < d.length; i += 4) bg = Math.max(bg, (d[i] + d[i+1] + d[i+2]) / 3);
+  for (let x = 0; x < W; x++){
+    let s = 0;
+    for (let y = 0; y < H; y++){
+      const p = (y * W + x) * 4;
+      const v = (d[p] + d[p+1] + d[p+2]) / 3;
+      if (bg - v > 45) s += (bg - v);
+    }
+    col[x] = s;
+  }
+  // 切出「有墨水」嘅連續段落
+  const runs = []; let st = -1;
+  for (let x = 0; x < W; x++){
+    if (col[x] > 0 && st < 0) st = x;
+    else if (col[x] === 0 && st >= 0){ if (x - st >= 2) runs.push([st, x]); st = -1; }
+  }
+  if (st >= 0 && W - st >= 2) runs.push([st, W]);
+  if (!runs.length) return null;
+
+  // 段數啱啱好等於字數 → 直接用（最理想）
+  if (runs.length === nChars){
+    return runs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
+  }
+  // 段數唔啱（筆畫斷開／字黐埋）→ 用整體墨水範圍平均切，起碼修正咗左右留白
+  const first = runs[0][0], last = runs[runs.length - 1][1];
+  const span = last - first;
+  if (span < nChars * 3) return null;
+  const step = span / nChars;
+  const out = [];
+  for (let i = 0; i < nChars; i++) out.push({ x: bx + (first + i * step) / sc, w: step / sc });
+  return out;
+}
 function ocrCharBoxes(str, bx, bw){
   const chars = [...str];
   const wts = chars.map(c => {
@@ -3549,7 +3597,7 @@ async function ocrBuildReplacedPdf(opts){
 
   const { rgb } = PDFLib;
   const pages = doc.getPages();
-  let patched = 0, skipConf = 0, skipBg = 0, skipRot = 0, unchanged = 0;
+  let patched = 0, skipConf = 0, skipBg = 0, skipRot = 0, unchanged = 0, skipGeom = 0;
 
   for (const pg of OCR.pages){
     const page = pages[pg.pageNo - 1];
@@ -3561,7 +3609,7 @@ async function ocrBuildReplacedPdf(opts){
     onProg && onProg(`第 ${pg.pageNo} 頁：分析緊背景色…`);
     const { canvas } = await ocrRenderPage(pg.pageNo, ocrDpi);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const sc = ocrDpi / 72;    // PDF point → 圖片像素
+    const sc = ocrDpi / 72;   // PDF point → 圖片像素    // PDF point → 圖片像素
 
     for (const line of pg.lines){
       const it = line.items[0];
@@ -3573,13 +3621,24 @@ async function ocrBuildReplacedPdf(opts){
       if (dst === src){ unchanged++; continue; }             // 全行都唔使改
       if ([...dst].length !== [...src].length){ continue; }   // 字數變咗就唔敢對位
 
-      const boxes = ocrCharBoxes(src, it.bx, it.bw);
-      const dchars = [...dst];
       const h = (it.bBot - it.bTop);
+      const nCh = [...src].length;
+      // ① 先試由原圖真正切出字位
+      let slots = ocrDetectCharSlots(ctx, it.bx, it.bTop, it.bw, h, nCh, sc);
+      // ② 切唔到就用估算，但只限「字距均勻嘅正文」——標題疏排會漂移，唔敢做
+      if (!slots){
+        const est = ocrCharBoxes(src, it.bx, it.bw);
+        const cjkOnly = /^[\u4e00-\u9fff\u3000-\u303F\uFF00-\uFFEF]+$/.test(src);
+        const ratio = (it.bw / nCh) / h;
+        if (!cjkOnly || ratio < 0.75 || ratio > 1.6){ skipGeom++; continue; }
+        slots = est.map(b => ({ x: b.x, w: b.w }));
+      }
 
-      for (let i = 0; i < boxes.length; i++){
-        if (boxes[i].ch === dchars[i]) continue;              // 呢個字唔使改 → 唔郁
-        const cb = boxes[i];
+      const dchars = [...dst];
+      const schars = [...src];
+      for (let i = 0; i < slots.length; i++){
+        if (schars[i] === dchars[i]) continue;                // 呢個字唔使改 → 唔郁
+        const cb = slots[i];
         const bg = ocrSampleBg(ctx, cb.x * sc, it.bTop * sc, cb.w * sc, h * sc);
         if (!bg){ skipBg++; continue; }                       // 背景唔乾淨 → 唔敢塗
 
@@ -3603,7 +3662,7 @@ async function ocrBuildReplacedPdf(opts){
 
   onProg && onProg("儲存緊…");
   const bytes = await doc.save();
-  return { bytes, patched, skipConf, skipBg, skipRot, unchanged };
+  return { bytes, patched, skipConf, skipBg, skipRot, unchanged, skipGeom };
 }
 async function ocrBuildSearchablePdf(opts){
   const { toTraditional, variant, onProg } = opts;
@@ -3723,6 +3782,7 @@ $("ocrExportReplaced").onclick = async () => {
                    stripExt(OCR.name || "ocr") + "_繁體置換.pdf");
       let msg = `✅ 已置換 ${r.patched} 個字。`;
       if (r.skipConf) msg += ` 信心不足跳過 ${r.skipConf} 行。`;
+      if (r.skipGeom) msg += ` 字位對唔準跳過 ${r.skipGeom} 行（多數係疏排標題，寧願唔改）。`;
       if (r.skipBg)   msg += ` 背景唔乾淨跳過 ${r.skipBg} 個字。`;
       if (r.skipRot)  msg += ` 頁面有旋轉跳過 ${r.skipRot} 版。`;
       msg += " 請逐頁檢查再用。";
