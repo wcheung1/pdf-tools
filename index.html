@@ -735,6 +735,39 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="status" id="ocrPdfStatus"></div>
   </div>
+
+  <div class="box" id="ocrReplaceBox" hidden>
+    <h2>🎨 完全置換：畫面上真係變繁體</h2>
+    <p class="desc">
+      同上面唔同：呢個會<b>真係改到你眼見嘅字</b>。做法係將需要改嘅簡體字，用背景色蓋住，
+      再喺同一個位置畫返繁體字。<b>版面、圖片、字位完全唔會郁。</b>
+    </p>
+
+    <div class="note warn">
+      ⚠️ <b>呢個係不可逆嘅。</b>被蓋住嘅原本像素冇咗就冇咗。<br><br>
+      四重保護已經內建：<br>
+      ① 只處理信心夠高嘅區塊　② <b>簡繁一樣嘅字完全唔郁</b>（約八成字唔會被掂）<br>
+      ③ 由原圖抽背景色，唔會硬塗白　④ 背景唔乾淨（踩到圖片、色塊）就自動跳過<br><br>
+      <b>建議：先淨係認 1-2 頁，出一份試睇，滿意先做全本。</b>
+    </div>
+
+    <label class="field-label">
+      置換信心門檻：<b id="ocrRepConfVal">0.90</b>
+      （比文字層嚴格好多，因為呢個係塗上去就冇得返轉頭）
+    </label>
+    <input type="range" id="ocrRepConf" min="0.5" max="0.99" step="0.01" value="0.9" style="width:100%">
+
+    <label class="field-label" style="margin-top:12px">用邊個地方嘅寫法？</label>
+    <div class="seg" id="ocrRepVariantSeg">
+      <button class="active" data-view="hk">🇭🇰 香港</button>
+      <button data-view="tw">🇹🇼 台灣</button>
+    </div>
+
+    <div class="toolbar" style="position:static">
+      <button class="btn big" style="width:auto" id="ocrExportReplaced">🎨 匯出置換版 PDF</button>
+    </div>
+    <div class="status" id="ocrRepStatus"></div>
+  </div>
 </section>
 
 <!-- ============ 10. 簡轉繁 ============ -->
@@ -1405,6 +1438,8 @@ const FONTKIT_URL = "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fo
 // 🔑 優先順序：① 本地 fonts/ 資料夾（隨 repo 一起上載 GitHub，最穩定、無 CORS 問題）
 //             ② CDN fallback（離線 / 本地檔案缺失時用）
 const CKJ_FONT_URLS = [
+  "fonts/NotoSansTC-Regular.ttf",                                    // ⓪ TTF 優先（置換功能必須用 TTF）
+  "lib/NotoSansTC-Regular.ttf",
   "fonts/NotoSansTC-Regular.otf",                                   // ① 本地細版（約 5MB，隨 repo upload）
   "fonts/NotoSansCJKtc-Regular.otf",                                 // ① 本地完整版（若有）
   "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/TC/NotoSansTC-Regular.otf",  // ② CDN 細版
@@ -3348,6 +3383,7 @@ $("ocrGo").onclick = async () => {
     }
     $("ocrResultBox").hidden = false;
     $("ocrPdfBox").hidden = (chars === 0);
+    $("ocrReplaceBox").hidden = (chars === 0);
     $("ocrProgText").textContent = "";
   } catch (err){
     console.error(err);
@@ -3413,7 +3449,162 @@ function ocrConvertS2T(text, D, variant){
   return [...out].map(c => V[c] !== undefined ? V[c] : c).join("");
 }
 
-/* ---------- 產生可搜尋 PDF ---------- */
+/* =====================================================
+   第二階段：完全置換（畫面上真係變繁體）
+   安全機制：
+     ① 只處理信心 ≥ 門檻嘅區塊
+     ② 只塗需要改嘅字（簡繁一樣嘅字唔郁，保留原像素）
+     ③ 由原圖抽背景色，唔會硬塗白
+     ④ 抽唔到乾淨背景就跳過，寧願唔改都唔搞花
+===================================================== */
+
+/* 一行嘅方框 → 逐個字嘅方框（中文等寬，英文標點按比例收窄） */
+function ocrCharBoxes(str, bx, bw){
+  const chars = [...str];
+  const wts = chars.map(c => {
+    if (/[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303F\uFF00-\uFFEF]/.test(c)) return 1.0;
+    if (/\s/.test(c)) return 0.35;
+    if (/[.,;:'"!|lI1\[\]()]/.test(c)) return 0.28;
+    return 0.52;
+  });
+  const tot = wts.reduce((a, b) => a + b, 0) || 1;
+  const out = []; let x = bx;
+  for (let i = 0; i < chars.length; i++){
+    const cw = bw * wts[i] / tot;
+    out.push({ ch: chars[i], x, w: cw });
+    x += cw;
+  }
+  return out;
+}
+
+/* 由 canvas 抽某個方框附近嘅背景色（取四邊最淺嘅一圈，避開筆畫） */
+function ocrSampleBg(ctx, x, y, w, h){
+  try {
+    const pad = Math.max(2, Math.round(h * 0.18));
+    const x0 = Math.max(0, Math.round(x - pad)), y0 = Math.max(0, Math.round(y - pad));
+    const ww = Math.max(1, Math.round(w + pad * 2)), hh = Math.max(1, Math.round(h + pad * 2));
+    const d = ctx.getImageData(x0, y0, ww, hh).data;
+    // 攞最光嗰 15% 像素嘅平均值 ＝ 紙底色（唔會被黑色筆畫拉暗）
+    const px = [];
+    for (let i = 0; i < d.length; i += 4){
+      px.push([d[i], d[i+1], d[i+2], d[i] + d[i+1] + d[i+2]]);
+    }
+    if (!px.length) return null;
+    px.sort((a, b) => b[3] - a[3]);
+    const take = Math.max(1, Math.floor(px.length * 0.15));
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < take; i++){ r += px[i][0]; g += px[i][1]; b += px[i][2]; }
+    r /= take; g /= take; b /= take;
+    // 背景太暗（可能踩正圖片／色塊）就唔好塗，返 null 等上層跳過
+    if ((r + g + b) / 3 < 110) return null;
+    return { r: r / 255, g: g / 255, b: b / 255 };
+  } catch(e){ return null; }
+}
+
+/* 置換之前一定要驗字型：
+   pdf-lib 對 OTF（CFF 輪廓）嘅 CJK 字型會畫錯字形
+   （實測「為學們設計課」畫成「妗」），可變字型更加會畫成空白。
+   蓋咗原字再畫錯／畫空白 = 個字永久消失，所以寧願唔做。 */
+function ocrCheckFontUsable(bytes){
+  const u = new Uint8Array(bytes);
+  const tag = String.fromCharCode(u[0], u[1], u[2], u[3]);
+  if (tag === "OTTO") return { ok: false, why: "呢隻係 OTF（CFF 輪廓）字型。pdf-lib 畫 CJK 會出錯字形。" };
+  if (tag === "ttcf") return { ok: false, why: "呢隻係 TTC 字型集合，唔支援。" };
+  // 可變字型：有 fvar 表就當可變
+  try {
+    const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
+    const num = dv.getUint16(4);
+    for (let i = 0; i < num; i++){
+      const off = 12 + i * 16;
+      const t = String.fromCharCode(u[off], u[off+1], u[off+2], u[off+3]);
+      if (t === "fvar") return { ok: false, why: "呢隻係可變字型（Variable Font）。pdf-lib 會畫成空白。" };
+    }
+  } catch(e){}
+  return { ok: true };
+}
+
+/* 產生「畫面真係變咗繁體」嘅 PDF */
+async function ocrBuildReplacedPdf(opts){
+  const { variant, minConf, onProg } = opts;
+  onProg && onProg("準備緊字型…");
+  const sup = await ensureCjkSupport();
+  if (!sup.ok || !sup.fontBytes) throw new Error("攞唔到中文字型：" + (sup.reason || "未知原因"));
+
+  const chk = ocrCheckFontUsable(sup.fontBytes);
+  if (!chk.ok){
+    throw new Error("為咗唔搞爛你份文件，置換已經停止。\n\n原因：" + chk.why +
+      "\n\n解決：喺 lib/ 或 fonts/ 放一隻 **TTF** 格式嘅繁體字型（例如 NotoSansTC-Regular.ttf），" +
+      "再試一次。「可搜尋 PDF」功能唔受影響，因為嗰層文字係隱形嘅。");
+  }
+
+  onProg && onProg("載入緊簡繁對照表…");
+  const dict = await ocrGetS2TMap();
+
+  onProg && onProg("開緊原本個 PDF…");
+  const doc = await PDFLib.PDFDocument.load(OCR.buf.slice(0), { ignoreEncryption: true });
+  doc.registerFontkit(window.fontkit);
+  // ⚠️ 唔可以子集化！實測 fontkit 子集化 CJK TTF 會令大部分字形變空白
+  //   （蓋咗原字再畫空白 = 個字永久消失）。完整嵌入雖然檔案大幾 MB，但穩陣。
+  const font = await doc.embedFont(sup.fontBytes.slice(0));
+
+  const { rgb } = PDFLib;
+  const pages = doc.getPages();
+  let patched = 0, skipConf = 0, skipBg = 0, skipRot = 0, unchanged = 0;
+
+  for (const pg of OCR.pages){
+    const page = pages[pg.pageNo - 1];
+    if (!page) continue;
+    if ((pg.geo && pg.geo.rotate)){ skipRot++; continue; }
+    const pageH = page.getSize().height;
+
+    // 要重新 render 一次原圖，先抽到背景色
+    onProg && onProg(`第 ${pg.pageNo} 頁：分析緊背景色…`);
+    const { canvas } = await ocrRenderPage(pg.pageNo, ocrDpi);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const sc = ocrDpi / 72;    // PDF point → 圖片像素
+
+    for (const line of pg.lines){
+      const it = line.items[0];
+      if (!it) continue;
+      if ((line.conf !== undefined ? line.conf : 1) < minConf){ skipConf++; continue; }
+
+      const src = it.str;
+      const dst = ocrConvertS2T(src, dict, variant);
+      if (dst === src){ unchanged++; continue; }             // 全行都唔使改
+      if ([...dst].length !== [...src].length){ continue; }   // 字數變咗就唔敢對位
+
+      const boxes = ocrCharBoxes(src, it.bx, it.bw);
+      const dchars = [...dst];
+      const h = (it.bBot - it.bTop);
+
+      for (let i = 0; i < boxes.length; i++){
+        if (boxes[i].ch === dchars[i]) continue;              // 呢個字唔使改 → 唔郁
+        const cb = boxes[i];
+        const bg = ocrSampleBg(ctx, cb.x * sc, it.bTop * sc, cb.w * sc, h * sc);
+        if (!bg){ skipBg++; continue; }                       // 背景唔乾淨 → 唔敢塗
+
+        const y = pageH - it.bBot;
+        page.drawRectangle({ x: cb.x, y, width: cb.w, height: h,
+                             color: rgb(bg.r, bg.g, bg.b), borderWidth: 0 });
+        let size = h * 0.86;
+        try {
+          const nat = font.widthOfTextAtSize(dchars[i], size);
+          if (nat > cb.w && nat > 0) size = size * (cb.w / nat);
+        } catch(e){}
+        try {
+          page.drawText(dchars[i], { x: cb.x + Math.max(0, (cb.w - font.widthOfTextAtSize(dchars[i], size)) / 2),
+                                     y: y + h * 0.14, size, font, color: rgb(0.08, 0.08, 0.08) });
+          patched++;
+        } catch(e){ /* 字型冇呢個字形 → 跳過 */ }
+      }
+    }
+    canvas.width = canvas.height = 0;
+  }
+
+  onProg && onProg("儲存緊…");
+  const bytes = await doc.save();
+  return { bytes, patched, skipConf, skipBg, skipRot, unchanged };
+}
 async function ocrBuildSearchablePdf(opts){
   const { toTraditional, variant, onProg } = opts;
   onProg && onProg("準備緊字型…");
@@ -3505,6 +3696,43 @@ async function ocrBuildSearchablePdf(opts){
   const bytes = await doc.save();
   return { bytes, placed, skippedRot };
 }
+
+/* ---------- 完全置換：掣同設定 ---------- */
+let ocrRepConf = 0.9, ocrRepVariant = "hk";
+$("ocrRepConf").oninput = e => {
+  ocrRepConf = parseFloat(e.target.value);
+  $("ocrRepConfVal").textContent = ocrRepConf.toFixed(2);
+};
+wireSeg($("ocrRepVariantSeg"), v => { ocrRepVariant = v; });
+
+$("ocrExportReplaced").onclick = async () => {
+  const st = $("ocrRepStatus");
+  if (!OCR.pages.length){ setStatus(st, "仲未認字。", "err"); return; }
+  const btn = $("ocrExportReplaced");
+  btn.disabled = true;
+  try {
+    const r = await ocrBuildReplacedPdf({
+      variant: ocrRepVariant, minConf: ocrRepConf,
+      onProg: m => setStatus(st, "⏳ " + m, "busy")
+    });
+    if (!r.patched){
+      setStatus(st, "⚠️ 一個字都冇改到。可能係信心門檻太高（試下調低），" +
+                    "或者呢啲頁本身冇需要轉換嘅字。", "warn");
+    } else {
+      downloadBlob(new Blob([r.bytes], { type: "application/pdf" }),
+                   stripExt(OCR.name || "ocr") + "_繁體置換.pdf");
+      let msg = `✅ 已置換 ${r.patched} 個字。`;
+      if (r.skipConf) msg += ` 信心不足跳過 ${r.skipConf} 行。`;
+      if (r.skipBg)   msg += ` 背景唔乾淨跳過 ${r.skipBg} 個字。`;
+      if (r.skipRot)  msg += ` 頁面有旋轉跳過 ${r.skipRot} 版。`;
+      msg += " 請逐頁檢查再用。";
+      setStatus(st, msg, "ok");
+    }
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ " + (err.message || err), "err");
+  } finally { btn.disabled = false; }
+};
 
 /* ---------- 可搜尋 PDF：掣同設定 ---------- */
 let ocrPdfLang = "trad", ocrPdfVariant = "hk";
