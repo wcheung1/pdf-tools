@@ -3532,17 +3532,61 @@ function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
   // 依據：2026-08-15 實測，段數 = 字數 嗰兩行偏差只有 0.0–0.2；
   //       段數 ≠ 字數 落咗「平均切」嗰四行偏差去到 +18.7。
   if (runs.length > nChars){
-    const rs = runs.map(r => [r[0], r[1]]);
-    while (rs.length > nChars){
-      let bi = 0, bg = Infinity;
-      for (let i = 0; i + 1 < rs.length; i++){
-        const g = rs[i + 1][0] - rs[i][1];
-        if (g < bg){ bg = g; bi = i; }
+    // ── 策略 A：淨係由最窄嘅罅開始合併（原本做法）
+    const mergeOnly = () => {
+      const rs = runs.map(r => [r[0], r[1]]);
+      while (rs.length > nChars){
+        let bi = 0, bg = Infinity;
+        for (let i = 0; i + 1 < rs.length; i++){
+          const g = rs[i + 1][0] - rs[i][1];
+          if (g < bg){ bg = g; bi = i; }
+        }
+        rs[bi] = [rs[bi][0], rs[bi + 1][1]];
+        rs.splice(bi + 1, 1);
       }
-      rs[bi] = [rs[bi][0], rs[bi + 1][1]];
-      rs.splice(bi + 1, 1);
-    }
-    OCR._dbgRuns = runs.length; OCR._dbgMode = "合併";
+      return rs;
+    };
+    // ── 策略 B：合併有闊度上限；合唔落就當最窄嗰段係雜訊掉走
+    //    對付「標題左邊有色塊／花邊」嗰種：實測標題行段0 闊得 7.5，
+    //    但最窄嘅罅喺兩個真字之間，策略 A 會合埋兩個真字（68 闊），
+    //    個雜訊反而霸咗第一格 → 新字畫咗落色塊度。
+    const dropNoise = () => {
+      const rs = runs.map(r => [r[0], r[1]]);
+      const ws = rs.map(r => r[1] - r[0]).sort((a, b) => a - b);
+      const maxW = ws[Math.floor(ws.length / 2)] * 1.35;   // 字唔會闊過中位數咁多
+      let guard = 0;
+      while (rs.length > nChars && guard++ < 500){
+        let bi = -1, bg = Infinity;
+        for (let i = 0; i + 1 < rs.length; i++){
+          if (rs[i + 1][1] - rs[i][0] > maxW) continue;    // 合埋會太闊 = 兩個真字，唔准合
+          const g = rs[i + 1][0] - rs[i][1];
+          if (g < bg){ bg = g; bi = i; }
+        }
+        if (bi >= 0){ rs[bi] = [rs[bi][0], rs[bi + 1][1]]; rs.splice(bi + 1, 1); }
+        else {
+          let ni = 0, nw = Infinity;
+          rs.forEach((r, i) => { const w = r[1] - r[0]; if (w < nw){ nw = w; ni = i; } });
+          rs.splice(ni, 1);
+        }
+      }
+      return rs;
+    };
+    // ── 揀邊個？睇「格闊度嘅離散程度」，同一行嘅字闊度應該相近。
+    // ⚠️ 保守起見：預設用返策略 A，除非 B 齊整過 A 一倍以上先轉。
+    // 實測（2026-08-15，四行真實數據）：
+    //   標題行  CV(A)=0.721 CV(B)=0.027 → 轉 B，位置完全啱返
+    //   其餘三行 B 冇明顯好過 A → 留喺 A，唔會被拖累
+    const cvOf = rs => {
+      const w = rs.map(r => r[1] - r[0]);
+      const m = w.reduce((a, b) => a + b, 0) / w.length;
+      if (!m) return Infinity;
+      return Math.sqrt(w.reduce((s, v) => s + (v - m) * (v - m), 0) / w.length) / m;
+    };
+    const A = mergeOnly(), B = dropNoise();
+    const useB = B.length === nChars && cvOf(B) < cvOf(A) * 0.5;
+    const rs = useB ? B : A;
+
+    OCR._dbgRuns = runs.length; OCR._dbgMode = useB ? "合併+去雜訊" : "合併";
     OCR._dbgRawRuns = runs.map(r => [+(bx + r[0] / sc).toFixed(1), +(bx + r[1] / sc).toFixed(1)]);
     return rs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
   }
@@ -3740,8 +3784,16 @@ async function ocrBuildReplacedPdf(opts){
           lastRight = Math.max(lastRight, slots[i].x + slots[i].w);
           continue;                                           // 呢個字唔使改 → 唔郁
         }
-        // 逐個字對準真實墨跡位置；對唔準就淨係跳過呢個字
-        const cb = ocrSnapSlot(ctx, slots[i].x, slots[i].w, it.bTop, h, sc, lastRight);
+        // 格位如果本身就係由真實墨跡度出嚟（墨跡／合併），就唔應該再 snap。
+        // 實測（2026-08-15）：ocrSnapSlot 會喺字入面嗰條罅度截斷 ——
+        //   們＝亻[184,192.6]｜门[193,197.6]，罅得 0.4，
+        //   合併出嚟嘅格 13.7 闊被縮到 8.6，蓋唔到「门」就出殘影。
+        //   别 亦一樣：12.6 → 7.6，「刂」露咗出嚟。
+        // 對照：墨跡模式嗰啲行 cw 永遠等於 sw，即係 snap 喺嗰度本身就係做白工。
+        // snap 只係為咗補救「平均切／估算」嗰啲估出嚟嘅位。
+        const inkBased = (dbg.mode === "墨跡" || dbg.mode === "合併" || dbg.mode === "合併+去雜訊");
+        const cb = inkBased ? { x: slots[i].x, w: slots[i].w }
+                            : ocrSnapSlot(ctx, slots[i].x, slots[i].w, it.bTop, h, sc, lastRight);
         if (!cb){ skipGeom++; dbg.chars.push({ i, s: schars[i], d: dchars[i], r: "對唔準" }); continue; }
         lastRight = cb.x + cb.w;
         const bg = ocrSampleBg(ctx, cb.x * sc, it.bTop * sc, cb.w * sc, h * sc);
@@ -3753,9 +3805,12 @@ async function ocrBuildReplacedPdf(opts){
         const y = pageH - it.bBot;
         // 塗蓋範圍略為外擴：原字筆畫（例如「体」個「本」）有機會超出偵測到嘅墨跡範圍，
         // 唔外擴就會留低半條筆畫做殘影。外擴幅度細心控制，唔好食到隔籬個字。
+        // ⚠️ 上下唔對稱：呢啲課本每行漢字上面就係拼音，貼得好近。
+        //    原本上下各外擴 3%，標題行 h 大，3% 嘅絕對值就夠掂到拼音（實測見到）。
+        //    所以上面收到 0.5%，下面保持 3%（要留返捺、鈎、走之底嘅位）。
         const padX = Math.min(cb.w * 0.10, (h - cb.w > 0 ? (h - cb.w) / 2 : cb.w * 0.10));
         page.drawRectangle({ x: cb.x - padX, y: y - h * 0.03,
-                             width: cb.w + padX * 2, height: h * 1.06,
+                             width: cb.w + padX * 2, height: h * 1.035,
                              color: rgb(bg.r, bg.g, bg.b), borderWidth: 0 });
         let size = h * 0.86;
         try {
