@@ -614,7 +614,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div id="ocrPaddleOpts">
       <label class="field-label" style="margin-top:12px">模型大小</label>
       <div class="seg" id="ocrTierSeg">
-        <button class="active" data-view="tiny">🐇 tiny（你試過，98.3%）</button>
+        <button class="active" data-view="tiny">🐇 tiny（實測 99.0%，28 頁 43 秒）</button>
         <button data-view="small">⚖️ small</button>
         <button data-view="medium">🎯 medium（最準）</button>
       </div>
@@ -3214,7 +3214,7 @@ let ocrDpi = 200, ocrSpeed = "eco", ocrLayout = "flow";
 let ocrEngine = "paddle", ocrDropPinyin = true, ocrDropJunk = true, ocrMinConf = 0.7, ocrTier = "tiny";
 
 const OCR_ENGINE_DESC = {
-  paddle: "PP-OCR 模型。實測同一頁：<b>準確率 98.3%</b>（Tesseract 得 81%）。識分開拼音同漢字，每個區塊有信心分數。有 WebGPU 就自動用 GPU。<b>第一次要下載模型（約 10-20MB）。</b>",
+  paddle: "PP-OCR 模型。實測同一頁：<b>準確率 99.0%</b>（Tesseract 得 81%）。識分開拼音同漢字，每個區塊有信心分數。有 WebGPU 就自動用 GPU。<b>第一次要下載模型（約 10-20MB）。</b>",
   tesseract: "原本嗰個引擎。完全離線、唔使下載模型，但中文準確率只有八成左右，亦分唔到拼音同正文。"
 };
 function ocrApplyEngine(v){
@@ -3524,7 +3524,31 @@ function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
     OCR._dbgRuns = runs.length; OCR._dbgMode = "墨跡";     // 診斷用，唔影響邏輯
     return runs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
   }
-  // 段數唔啱（筆畫斷開／字黐埋）→ 用整體墨水範圍平均切，起碼修正咗左右留白
+
+  // 段數多過字數 → 幾乎一定係「左右分邊」嘅字被切開咗
+  //   （听＝口＋斤、们＝亻＋门、体＝亻＋本、别＝另＋刂、护＝扌＋户）
+  // 實測：字入面嗰條罅一定窄過字同字之間嗰條罅，
+  // 所以由最窄嘅罅開始合併，合到段數等於字數為止。
+  // 依據：2026-08-15 實測，段數 = 字數 嗰兩行偏差只有 0.0–0.2；
+  //       段數 ≠ 字數 落咗「平均切」嗰四行偏差去到 +18.7。
+  if (runs.length > nChars){
+    const rs = runs.map(r => [r[0], r[1]]);
+    while (rs.length > nChars){
+      let bi = 0, bg = Infinity;
+      for (let i = 0; i + 1 < rs.length; i++){
+        const g = rs[i + 1][0] - rs[i][1];
+        if (g < bg){ bg = g; bi = i; }
+      }
+      rs[bi] = [rs[bi][0], rs[bi + 1][1]];
+      rs.splice(bi + 1, 1);
+    }
+    OCR._dbgRuns = runs.length; OCR._dbgMode = "合併";
+    OCR._dbgRawRuns = runs.map(r => [+(bx + r[0] / sc).toFixed(1), +(bx + r[1] / sc).toFixed(1)]);
+    return rs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
+  }
+
+  // 段數少過字數（字黐埋咗）→ 冇可靠方法拆開，維持舊做法：
+  // 用整體墨水範圍平均切，起碼修正咗左右留白
   const first = runs[0][0], last = runs[runs.length - 1][1];
   const span = last - first;
   if (span < nChars * 3){ OCR._dbgRuns = runs.length; OCR._dbgMode = "放棄"; return null; }
@@ -3694,7 +3718,7 @@ async function ocrBuildReplacedPdf(opts){
       const h = (it.bBot - it.bTop);
       const nCh = [...src].length;
       // ① 先試由原圖整行切出字位
-      OCR._dbgRuns = null; OCR._dbgMode = null;
+      OCR._dbgRuns = null; OCR._dbgMode = null; OCR._dbgRawRuns = null;
       let slots = ocrDetectCharSlots(ctx, it.bx, it.bTop, it.bw, h, nCh, sc);
       // ② 切唔到就用估算做起點，再逐個字對準墨跡（唔會成行放棄）
       if (!slots){ slots = ocrCharBoxes(src, it.bx, it.bw).map(b => ({ x: b.x, w: b.w })); OCR._dbgMode = "估算"; }
@@ -3703,6 +3727,7 @@ async function ocrBuildReplacedPdf(opts){
       const dbg = { p: pg.pageNo, src, dst, n: nCh,
                     runs: OCR._dbgRuns, mode: OCR._dbgMode,
                     bx: +it.bx.toFixed(1), bw: +it.bw.toFixed(1),
+                    rawRuns: OCR._dbgRawRuns,
                     slotX: slots.map(s => +s.x.toFixed(1)),
                     chars: [] };
       OCR.dbgSlots.push(dbg);
@@ -3763,18 +3788,28 @@ function ocrDbgReport(){
   D.forEach(l => { byMode[l.mode || "?"] = (byMode[l.mode || "?"] || 0) + 1; });
   console.log("%c=== 置換診斷摘要 ===", "font-weight:bold;font-size:14px");
   console.log("處理咗", D.length, "行；字位偵測方式：", byMode);
-  console.log("「墨跡」＝切得準；「平均切」＝切唔到字數，改用平均分（最易對錯位）；「估算」＝完全切唔到");
+  console.log("「墨跡」＝段數啱啱好；「合併」＝段數多過字數，已自動合返（左右分邊嘅字）；" +
+              "「平均切」＝段數少過字數，唯有平均分（最易對錯位）；「估算」＝完全切唔到");
 
-  // 邊啲行有問題：用「平均切」或者有跳過嘅字
-  const bad = D.filter(l => l.mode !== "墨跡" || l.chars.some(c => c.r !== "畫咗"));
-  console.log("有風險嘅行：", bad.length, "／", D.length);
-  console.table(D.map(l => ({
-    頁: l.p, 字數: l.n, 墨跡段數: l.runs, 方式: l.mode,
-    要改: l.chars.length,
-    畫咗: l.chars.filter(c => c.r === "畫咗").length,
-    跳過: l.chars.filter(c => c.r !== "畫咗").length,
-    原文: l.src.slice(0, 24)
-  })));
+  // 最重要嘅指標：估算位同真實墨跡位差幾遠。實測 0–0.2 = 準；超過 3 就開始危險
+  const rows = D.map(l => {
+    const drawn = l.chars.filter(c => c.r === "畫咗");
+    const offs = drawn.map(c => Math.abs(c.cx - c.sx));
+    const worst = offs.length ? Math.max(...offs) : null;
+    return {
+      頁: l.p, 字數: l.n, 墨跡段數: l.runs, 方式: l.mode,
+      要改: l.chars.length, 畫咗: drawn.length,
+      跳過: l.chars.length - drawn.length,
+      最大偏差: worst === null ? "—" : worst.toFixed(1),
+      評: worst === null ? "—" : (worst <= 1 ? "✅ 準" : worst <= 3 ? "⚠️ 有少少" : "❌ 對錯位"),
+      原文: l.src.slice(0, 24)
+    };
+  });
+  console.table(rows);
+  const bad = rows.filter(r => r.評 === "❌ 對錯位").length;
+  const warn = rows.filter(r => r.評 === "⚠️ 有少少").length;
+  console.log(`%c總結：${rows.length - bad - warn} 行準、${warn} 行有少少偏、${bad} 行對錯位`,
+              bad ? "color:#c00;font-weight:bold" : "color:#080;font-weight:bold");
   console.log("要成份詳細數據俾人分析，喺下面貼呢一行：");
   console.log("%ccopy(OCR.dbgJSON())", "background:#eee;padding:2px 6px;font-family:monospace");
 }
