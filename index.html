@@ -3543,8 +3543,10 @@ function ocrSnapSlot(ctx, sx, sw, bTop, bh, sc, minX){
   }
   if (!best) return null;
   const w = (best[1] - best[0]) / sc;
-  if (w < sw * 0.45 || w > sw * 1.8) return null;
-  if (bestD / sc > sw * 0.75) return null;
+  if (w < sw * 0.55 || w > sw * 1.45) return null;   // 寬度差太遠 → 唔敢用
+  // 位置容差由 0.75 收到 0.35 個字寬。之前太鬆，新字會對準隔籬嗰個字嘅墨跡，
+  // 畫咗喺鄰居身上，原字冇被蓋住 → 出現「體体」「園裏里」呢種並排現象。
+  if (bestD / sc > sw * 0.35) return null;
   return { x: (sx - pad) + best[0] / sc, w };
 }
 function ocrCharBoxes(str, bx, bw){
@@ -3684,7 +3686,11 @@ async function ocrBuildReplacedPdf(opts){
         if (!bg){ skipBg++; continue; }                       // 背景唔乾淨 → 唔敢塗
 
         const y = pageH - it.bBot;
-        page.drawRectangle({ x: cb.x, y, width: cb.w, height: h,
+        // 塗蓋範圍略為外擴：原字筆畫（例如「体」個「本」）有機會超出偵測到嘅墨跡範圍，
+        // 唔外擴就會留低半條筆畫做殘影。外擴幅度細心控制，唔好食到隔籬個字。
+        const padX = Math.min(cb.w * 0.10, (h - cb.w > 0 ? (h - cb.w) / 2 : cb.w * 0.10));
+        page.drawRectangle({ x: cb.x - padX, y: y - h * 0.03,
+                             width: cb.w + padX * 2, height: h * 1.06,
                              color: rgb(bg.r, bg.g, bg.b), borderWidth: 0 });
         let size = h * 0.86;
         try {
