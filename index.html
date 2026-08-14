@@ -2848,12 +2848,16 @@ async function ocrEnsurePaddle(st){
   const svc = new Svc({
     model: { detection: det, recognition: rec, charactersDictionary: dict },
     recognition: { strategy: "per-line" },     // 官方實測最準（99.22%）
-    processing: { engine: "canvas-native" }    // 瀏覽器版唔帶 OpenCV
+    processing: { engine: "canvas-native" },   // 瀏覽器版唔帶 OpenCV
+    // 本機嗰個 bundle 係純 WASM 版（WebGPU 個 .wasm 有 25.6MB，
+    // 超過 GitHub 網頁上載 25MB 上限）。直接講明用 wasm，
+    // 唔使白試一次 webgpu 失敗再退返，慳幾秒兼冇紅字。
+    ...(mod.WASM_ONLY ? { session: { executionProviders: ["wasm"] } } : {})
   });
   await svc.initialize();
 
   let gpu = false;
-  try { gpu = mod.isWebGpuAvailable ? await mod.isWebGpuAvailable() : false; } catch(e){}
+  try { gpu = (!mod.WASM_ONLY && mod.isWebGpuAvailable) ? await mod.isWebGpuAvailable() : false; } catch(e){}
   OCR.paddle = svc;
   OCR.paddleTier = ocrTier;
   OCR.paddleGpu = gpu;
