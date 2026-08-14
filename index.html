@@ -1105,6 +1105,25 @@ function downloadBlob(blob, name){
   setTimeout(() => URL.revokeObjectURL(link.href), 30000);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   pdf.js 開檔設定：字型相容模式
+
+   ⚠️ 實測（2026-08-15，用「簡轉繁」出嘅教科書驗證）：
+   pdf.js 預設會將 PDF 入面嵌住嘅字型交俾瀏覽器，用 @font-face 載入。
+   但 Chrome 有個字型檢查器（OTS），佢唔收某啲 OTF／CFF CID 字型，
+   收唔到就靜靜退返去用系統字型 —— 唔會報錯。
+   而呢類 PDF 用 Identity-H 編碼：文字入面存嘅係「字形編號」唔係文字，
+   拎住編號去問另一隻字型，就攞返完全唔同嘅字 → 畫面出現怪獸字。
+
+   四個引擎對比（同一頁）：
+     Acrobat ✅ ｜ poppler ✅ ｜ pdf.js(Node) ✅ ｜ pdf.js(瀏覽器預設) ❌
+   唯一變數就係瀏覽器有冇參與載入字型。
+
+   disableFontFace: true → pdf.js 唔經瀏覽器，自己解析字型再畫字形輪廓，
+   繞開整個問題。代價係畫得慢少少，但畫得啱先最緊要。
+   ───────────────────────────────────────────────────────────── */
+const PDFJS_SAFE = { disableFontFace: true };
+
 /* 載入 PDF（pdf-lib），自動忽略 restricted / protected 嘅權限加密 */
 async function loadPdfLib(arrayBuffer){
   return PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
@@ -1155,12 +1174,12 @@ async function unlockPdfByRaster(arrayBuffer, opts){
   const onProg = opts.onProg;
   let src;
   try {
-    src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: opts.password }).promise;
+    src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: opts.password, ...PDFJS_SAFE }).promise;
   } catch (err){
     if (err && err.name === "PasswordException"){
       const pw = prompt("呢份 PDF 要開啟密碼先解得到，請輸入：");
       if (pw == null) throw new Error("冇輸入密碼，已取消。");
-      src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: pw }).promise;
+      src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: pw, ...PDFJS_SAFE }).promise;
     } else throw err;
   }
   const out = await PDFLib.PDFDocument.create();
@@ -1285,12 +1304,12 @@ async function addWorkspaceFiles(files){
       // 用 pdf.js 產生縮圖；如果 PDF 需要開啟密碼，會問你攞密碼
       let pdfjsDoc, password;
       try {
-        pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+        pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0), ...PDFJS_SAFE }).promise;
       } catch (err){
         if (err && err.name === "PasswordException"){
           password = prompt(`「${file.name}」需要開啟密碼，請輸入：`);
           if (password == null) { setStatus(st, `已略過「${file.name}」`, "err"); continue; }
-          pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0), password }).promise;
+          pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0), password, ...PDFJS_SAFE }).promise;
         } else throw err;
       }
 
@@ -1779,7 +1798,7 @@ wireDropzone($("teDrop"), $("teFileInput"), async files => {
   setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
   try {
     TE.buffer = await file.arrayBuffer();
-    TE.pdfjsDoc = await pdfjsLib.getDocument({ data: TE.buffer.slice(0) }).promise;
+    TE.pdfjsDoc = await pdfjsLib.getDocument({ data: TE.buffer.slice(0), ...PDFJS_SAFE }).promise;
     TE.pdfLibDoc = await loadPdfLib(TE.buffer);
     const n = TE.pdfjsDoc.numPages;
     TE.pages = []; TE.annosByPage = [];
@@ -2331,7 +2350,7 @@ async function imagesToPdfBlob(files, opts){
 
 async function pdfToImages(buffer, opts){
   opts = opts || {};
-  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0), ...PDFJS_SAFE }).promise;
   const scale = (opts.dpi || 150) / 72;
   const fmt = opts.format || "png";
   const type = fmt === "jpg" ? "image/jpeg" : "image/png";
@@ -2463,7 +2482,7 @@ function linesToBody(lines, detectTables){
 
 async function pdfToDocxBlob(buffer, opts){
   opts = opts || {};
-  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  const pdfjsDoc = await pdfjsLib.getDocument({ data: buffer.slice(0), ...PDFJS_SAFE }).promise;
   let body = "";
   for (let pi = 0; pi < pdfjsDoc.numPages; pi++){
     const page = await pdfjsDoc.getPage(pi + 1);
@@ -2855,7 +2874,7 @@ async function renderTrimPreview(){
   if (!TR.file) return;
   try {
     // 重用已開啟嘅 pdfjsDoc（避免每次重新 parse）；冇就開一個
-    if (!TR.pdfjsDoc) TR.pdfjsDoc = await pdfjsLib.getDocument({ data: TR.buffer.slice(0) }).promise;
+    if (!TR.pdfjsDoc) TR.pdfjsDoc = await pdfjsLib.getDocument({ data: TR.buffer.slice(0), ...PDFJS_SAFE }).promise;
     const pageNum = Math.min(Math.max(1, TR.previewPage), TR.pdfjsDoc.numPages);
     const page = await TR.pdfjsDoc.getPage(pageNum);
     const maxW = Math.min(420, $("panel-trim").clientWidth - 60);
@@ -3436,7 +3455,7 @@ wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
     OCR.name = file.name;
     OCR.pages = [];
     if (OCR.pdfjsDoc){ try { OCR.pdfjsDoc.destroy(); } catch(e){} }
-    OCR.pdfjsDoc = await pdfjsLib.getDocument({ data: OCR.buf.slice(0) }).promise;
+    OCR.pdfjsDoc = await pdfjsLib.getDocument({ data: OCR.buf.slice(0), ...PDFJS_SAFE }).promise;
 
     // 順手偵測：份 PDF 本身有冇文字層？有嘅話唔使 OCR
     let hasText = false;
@@ -4389,7 +4408,7 @@ wireDropzone($("s2tDrop"), $("s2tFileInput"), async files => {
     S2.buf = await file.arrayBuffer();
     S2.name = file.name;
     S2.outBytes = null;
-    S2.pdfjsDoc = await pdfjsLib.getDocument({ data: S2.buf.slice(0) }).promise;
+    S2.pdfjsDoc = await pdfjsLib.getDocument({ data: S2.buf.slice(0), ...PDFJS_SAFE }).promise;
     $("s2tFileList").innerHTML =
       `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
       `<span class="pages">共 ${S2.pdfjsDoc.numPages} 頁</span></li>`;
@@ -4823,7 +4842,7 @@ $("s2tGo").onclick = async () => {
 /* ---------- 前後對比 ---------- */
 async function s2tSetupPreview(){
   if (!S2.outBytes) return;
-  S2.outDoc = await pdfjsLib.getDocument({ data: S2.outBytes.slice(0) }).promise;
+  S2.outDoc = await pdfjsLib.getDocument({ data: S2.outBytes.slice(0), ...PDFJS_SAFE }).promise;
   const sel = $("s2tPreviewPage");
   sel.innerHTML = "";
   for (let i = 1; i <= S2.pdfjsDoc.numPages; i++){
@@ -5107,7 +5126,7 @@ async function rdLoadFile(file){
     const buf = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
     RD.buf = buf; RD.name = file.name;
     if (RD.doc){ try { RD.doc.destroy(); } catch(e){} }
-    RD.doc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+    RD.doc = await pdfjsLib.getDocument({ data: buf.slice(0), ...PDFJS_SAFE }).promise;
     RD.pageCount = RD.doc.numPages;
     RD.idx = 0;
     rdRecalc();
