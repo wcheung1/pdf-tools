@@ -1051,6 +1051,26 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 
 </main>
 
+<div id="rdViewer" aria-hidden="true">
+  <div id="rdBar">
+    <button id="rvPrev" title="上一版（←）">◀ 上一版</button>
+    <button id="rvNext" title="下一版（→）">下一版 ▶</button>
+    <span class="lbl" id="rvPos">—</span>
+    <span class="lbl">跳去</span>
+    <input type="number" id="rvJump" min="1" placeholder="頁">
+    <button id="rvJumpGo">去</button>
+    <span class="sp"></span>
+    <button id="rvZoomOut" title="縮細（-）">−</button>
+    <span class="lbl" id="rvZoom">100%</span>
+    <button id="rvZoomIn" title="放大（+）">＋</button>
+    <button id="rvFit" title="一鍵還原（0）">⤢ 一鍵還原</button>
+    <button id="rvFs" title="切換全螢幕（F）">⛶ 全螢幕</button>
+    <button id="rvClose" title="離開（Esc）">✕ 收工</button>
+  </div>
+  <div id="rdStage"></div>
+  <div id="rdHint"></div>
+
+
 <footer>私隱優先 · 全部運算由瀏覽器完成（pdf-lib + pdf.js + JSZip + Tesseract.js）· 檔案永遠唔會離開你部電腦 · 可以直接放上 GitHub Pages / Netlify 托管</footer>
 
 <script>
@@ -5102,8 +5122,14 @@ async function rdLoadFile(file){
   }
 }
 
-/* ---------- 接線 ---------- */
-(function rdWire(){
+/* ---------- 接線 ----------
+   ⚠️ 教訓（2026-08-15）：接線碼一定要等 DOM 齊晒先行。
+   之前將全螢幕頂欄嗰排掣擺咗喺 script 區塊結尾之後，
+   接線嗰陣 $("rvPrev") 係 null，啲 `&& addEventListener` 靜靜雞跳過，
+   結果冇報錯，但成排掣一撳都冇反應。而家兩重保險：
+   ① 頂欄 HTML 已經移咗去 script 區塊之前
+   ② 就算將來又搬亂咗，等 DOMContentLoaded 都接得返                */
+function rdWire(){
   const seg = (id, fn) => {
     const box = $(id);
     if (!box) return;
@@ -5163,29 +5189,12 @@ async function rdLoadFile(file){
   window.addEventListener("resize", () => {
     if ($("rdViewer") && $("rdViewer").classList.contains("on")) rdFitZoom();
   });
-})();
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", rdWire);
+else rdWire();
 
 </script>
 
-<!-- 睇書模式：全螢幕閱讀器 -->
-<div id="rdViewer" aria-hidden="true">
-  <div id="rdBar">
-    <button id="rvPrev" title="上一版（←）">◀ 上一版</button>
-    <button id="rvNext" title="下一版（→）">下一版 ▶</button>
-    <span class="lbl" id="rvPos">—</span>
-    <span class="lbl">跳去</span>
-    <input type="number" id="rvJump" min="1" placeholder="頁">
-    <button id="rvJumpGo">去</button>
-    <span class="sp"></span>
-    <button id="rvZoomOut" title="縮細（-）">−</button>
-    <span class="lbl" id="rvZoom">100%</span>
-    <button id="rvZoomIn" title="放大（+）">＋</button>
-    <button id="rvFit" title="一鍵還原（0）">⤢ 一鍵還原</button>
-    <button id="rvFs" title="切換全螢幕（F）">⛶ 全螢幕</button>
-    <button id="rvClose" title="離開（Esc）">✕ 收工</button>
-  </div>
-  <div id="rdStage"></div>
-  <div id="rdHint"></div>
 </div>
 </body>
 </html>
