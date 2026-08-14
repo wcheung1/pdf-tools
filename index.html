@@ -3488,7 +3488,7 @@ function ocrConvertS2T(text, D, variant){
    結果新字冚唔住舊字（封面出現「學」同「学」並排）。
    而家改為掃描直方圖：搵出墨水嘅垂直空隙，切返真實字界。
    切唔準（字數對唔上）就返 null，上層會跳過唔改。          */
-function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
+function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc, txt){
   if (nChars < 1) return null;
   const X = Math.round(bx * sc), Y = Math.round(bTop * sc);
   const W = Math.round(bw * sc), H = Math.round(bh * sc);
@@ -3532,10 +3532,22 @@ function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
   // 依據：2026-08-15 實測，段數 = 字數 嗰兩行偏差只有 0.0–0.2；
   //       段數 ≠ 字數 落咗「平均切」嗰四行偏差去到 +18.7。
   if (runs.length > nChars){
-    // ── 策略 A：淨係由最窄嘅罅開始合併（原本做法）
-    const mergeOnly = () => {
-      const rs = runs.map(r => [r[0], r[1]]);
-      while (rs.length > nChars){
+    // ═══════════════════════════════════════════════════════════════
+    // 通用原則：一行入面嘅漢字係全形，闊度應該相近。
+    // 如果某個漢字被派到一個明顯過窄嘅格，就代表對錯咗位 —— 唔好改。
+    //
+    // 點解需要呢個：OCR 個框有時會包住唔係文字嘅墨（行首黃色圓點、
+    // 標題左邊嘅色塊、花邊），但文字入面冇佢，於是之後每個字推遲一格。
+    // 實測（2026-08-15）：
+    //   標題行  段0 [112,119.5] 闊 7.5  = 黃色色塊 → 「聽」畫落色塊度
+    //   第4行   段0 [87.1,99]  闊 11.9 = 行首圓點 ● → 「護」畫落「保」度
+    // 圓點嗰個唔係最窄，所以「掉走最窄嗰段」呢類規則捉唔到 ——
+    // 要用「對位啱唔啱」嚟驗證，唔係靠估邊段係雜訊。
+    // ═══════════════════════════════════════════════════════════════
+    const mergeTo = (rr, n) => {
+      const rs = rr.map(r => [r[0], r[1]]);
+      if (rs.length < n) return null;
+      while (rs.length > n){
         let bi = 0, bg = Infinity;
         for (let i = 0; i + 1 < rs.length; i++){
           const g = rs[i + 1][0] - rs[i][1];
@@ -3546,49 +3558,41 @@ function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
       }
       return rs;
     };
-    // ── 策略 B：合併有闊度上限；合唔落就當最窄嗰段係雜訊掉走
-    //    對付「標題左邊有色塊／花邊」嗰種：實測標題行段0 闊得 7.5，
-    //    但最窄嘅罅喺兩個真字之間，策略 A 會合埋兩個真字（68 闊），
-    //    個雜訊反而霸咗第一格 → 新字畫咗落色塊度。
-    const dropNoise = () => {
-      const rs = runs.map(r => [r[0], r[1]]);
-      const ws = rs.map(r => r[1] - r[0]).sort((a, b) => a - b);
-      const maxW = ws[Math.floor(ws.length / 2)] * 1.35;   // 字唔會闊過中位數咁多
-      let guard = 0;
-      while (rs.length > nChars && guard++ < 500){
-        let bi = -1, bg = Infinity;
-        for (let i = 0; i + 1 < rs.length; i++){
-          if (rs[i + 1][1] - rs[i][0] > maxW) continue;    // 合埋會太闊 = 兩個真字，唔准合
-          const g = rs[i + 1][0] - rs[i][1];
-          if (g < bg){ bg = g; bi = i; }
-        }
-        if (bi >= 0){ rs[bi] = [rs[bi][0], rs[bi + 1][1]]; rs.splice(bi + 1, 1); }
-        else {
-          let ni = 0, nw = Infinity;
-          rs.forEach((r, i) => { const w = r[1] - r[0]; if (w < nw){ nw = w; ni = i; } });
-          rs.splice(ni, 1);
-        }
-      }
-      return rs;
+    // 驗證：漢字格唔可以窄過同行漢字格中位數嘅一半
+    const check = (rs) => {
+      if (!rs || !txt) return { ok: !!rs, why: "冇文字對照" };
+      const w = [];
+      [...txt].forEach((c, i) => {
+        if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(c) && rs[i]) w.push(rs[i][1] - rs[i][0]);
+      });
+      if (w.length < 3) return { ok: true, why: "漢字太少，唔夠判斷" };
+      const s = [...w].sort((a, b) => a - b);
+      const m = s[Math.floor(s.length / 2)], mn = s[0], mx = s[s.length - 1];
+      // 兩邊都要檢：太窄 = 個字被派咗去標點／雜訊嗰格；
+      //             太闊 = 兩個真字被合埋咗一格。
+      if (mn < m * 0.5) return { ok: false, why: `最窄漢字格 ${mn.toFixed(1)} ÷ 中位 ${m.toFixed(1)} = ${(mn / m).toFixed(2)}，太窄` };
+      if (mx > m * 1.8) return { ok: false, why: `最闊漢字格 ${mx.toFixed(1)} ÷ 中位 ${m.toFixed(1)} = ${(mx / m).toFixed(2)}，太闊` };
+      return { ok: true, why: `漢字格 ${mn.toFixed(1)}–${mx.toFixed(1)}，中位 ${m.toFixed(1)}` };
     };
-    // ── 揀邊個？睇「格闊度嘅離散程度」，同一行嘅字闊度應該相近。
-    // ⚠️ 保守起見：預設用返策略 A，除非 B 齊整過 A 一倍以上先轉。
-    // 實測（2026-08-15，四行真實數據）：
-    //   標題行  CV(A)=0.721 CV(B)=0.027 → 轉 B，位置完全啱返
-    //   其餘三行 B 冇明顯好過 A → 留喺 A，唔會被拖累
-    const cvOf = rs => {
-      const w = rs.map(r => r[1] - r[0]);
-      const m = w.reduce((a, b) => a + b, 0) / w.length;
-      if (!m) return Infinity;
-      return Math.sqrt(w.reduce((s, v) => s + (v - m) * (v - m), 0) / w.length) / m;
-    };
-    const A = mergeOnly(), B = dropNoise();
-    const useB = B.length === nChars && cvOf(B) < cvOf(A) * 0.5;
-    const rs = useB ? B : A;
-
-    OCR._dbgRuns = runs.length; OCR._dbgMode = useB ? "合併+去雜訊" : "合併";
+    // 候選：①原封不動（最保守，優先）②掉走頭一段 ③掉走最後一段
+    const cands = [["合併", runs], ["合併+掉頭段", runs.slice(1)], ["合併+掉尾段", runs.slice(0, -1)]];
+    let picked = null, tried = [];
+    for (const [label, rr] of cands){
+      const rs = mergeTo(rr, nChars);
+      const v = check(rs);
+      tried.push(`${label}:${v.ok ? "過" : "唔過"}(${v.why})`);
+      if (rs && v.ok){ picked = [label, rs]; break; }
+    }
+    OCR._dbgRuns = runs.length;
     OCR._dbgRawRuns = runs.map(r => [+(bx + r[0] / sc).toFixed(1), +(bx + r[1] / sc).toFixed(1)]);
-    return rs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
+    OCR._dbgTried = tried;
+    if (!picked){
+      // 冇一個候選對得住 → 寧願唔改，都好過畫花佢
+      OCR._dbgMode = "對唔到";
+      return null;
+    }
+    OCR._dbgMode = picked[0];
+    return picked[1].map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
   }
 
   // 段數少過字數（字黐埋咗）→ 冇可靠方法拆開，維持舊做法：
@@ -3762,16 +3766,27 @@ async function ocrBuildReplacedPdf(opts){
       const h = (it.bBot - it.bTop);
       const nCh = [...src].length;
       // ① 先試由原圖整行切出字位
-      OCR._dbgRuns = null; OCR._dbgMode = null; OCR._dbgRawRuns = null;
-      let slots = ocrDetectCharSlots(ctx, it.bx, it.bTop, it.bw, h, nCh, sc);
+      OCR._dbgRuns = null; OCR._dbgMode = null; OCR._dbgRawRuns = null; OCR._dbgTried = null;
+      let slots = ocrDetectCharSlots(ctx, it.bx, it.bTop, it.bw, h, nCh, sc, src);
       // ② 切唔到就用估算做起點，再逐個字對準墨跡（唔會成行放棄）
+      // 驗證唔過 = 對唔到位 → 寧願成行唔改，都好過畫花佢
+      // （同「封面美術字寧願跳過」係同一個取態）
+      if (!slots && OCR._dbgMode === "對唔到"){
+        const nDiff = [...src].filter((c, k) => c !== [...dst][k]).length;
+        skipGeom += nDiff;
+        OCR.dbgSlots.push({ p: pg.pageNo, src, dst, n: nCh, runs: OCR._dbgRuns,
+                            mode: "對唔到", bx: +it.bx.toFixed(1), bw: +it.bw.toFixed(1),
+                            rawRuns: OCR._dbgRawRuns, tried: OCR._dbgTried, tried: OCR._dbgTried,
+                            slotX: [], chars: [] });
+        continue;
+      }
       if (!slots){ slots = ocrCharBoxes(src, it.bx, it.bw).map(b => ({ x: b.x, w: b.w })); OCR._dbgMode = "估算"; }
 
       // ── 診斷紀錄（純記錄，唔改任何行為）──────────────────
       const dbg = { p: pg.pageNo, src, dst, n: nCh,
                     runs: OCR._dbgRuns, mode: OCR._dbgMode,
                     bx: +it.bx.toFixed(1), bw: +it.bw.toFixed(1),
-                    rawRuns: OCR._dbgRawRuns,
+                    rawRuns: OCR._dbgRawRuns, tried: OCR._dbgTried,
                     slotX: slots.map(s => +s.x.toFixed(1)),
                     chars: [] };
       OCR.dbgSlots.push(dbg);
@@ -3791,7 +3806,7 @@ async function ocrBuildReplacedPdf(opts){
         //   别 亦一樣：12.6 → 7.6，「刂」露咗出嚟。
         // 對照：墨跡模式嗰啲行 cw 永遠等於 sw，即係 snap 喺嗰度本身就係做白工。
         // snap 只係為咗補救「平均切／估算」嗰啲估出嚟嘅位。
-        const inkBased = (dbg.mode === "墨跡" || dbg.mode === "合併" || dbg.mode === "合併+去雜訊");
+        const inkBased = (dbg.mode === "墨跡" || dbg.mode.indexOf("合併") === 0);
         const cb = inkBased ? { x: slots[i].x, w: slots[i].w }
                             : ocrSnapSlot(ctx, slots[i].x, slots[i].w, it.bTop, h, sc, lastRight);
         if (!cb){ skipGeom++; dbg.chars.push({ i, s: schars[i], d: dchars[i], r: "對唔準" }); continue; }
@@ -3844,7 +3859,9 @@ function ocrDbgReport(){
   console.log("%c=== 置換診斷摘要 ===", "font-weight:bold;font-size:14px");
   console.log("處理咗", D.length, "行；字位偵測方式：", byMode);
   console.log("「墨跡」＝段數啱啱好；「合併」＝段數多過字數，已自動合返（左右分邊嘅字）；" +
-              "「平均切」＝段數少過字數，唯有平均分（最易對錯位）；「估算」＝完全切唔到");
+              "「合併+掉頭/尾段」＝框入面有唔係文字嘅墨（行首圓點、色塊），已剔走；" +
+              "「對唔到」＝驗證唔過，成行跳過唔改（寧願唔改都好過搞花）；" +
+              "「平均切」＝段數少過字數；「估算」＝完全切唔到");
 
   // 最重要嘅指標：估算位同真實墨跡位差幾遠。實測 0–0.2 = 準；超過 3 就開始危險
   const rows = D.map(l => {
@@ -3856,7 +3873,8 @@ function ocrDbgReport(){
       要改: l.chars.length, 畫咗: drawn.length,
       跳過: l.chars.length - drawn.length,
       最大偏差: worst === null ? "—" : worst.toFixed(1),
-      評: worst === null ? "—" : (worst <= 1 ? "✅ 準" : worst <= 3 ? "⚠️ 有少少" : "❌ 對錯位"),
+      評: l.mode === "對唔到" ? "⏭️ 跳過" :
+          (worst === null ? "—" : (worst <= 1 ? "✅ 準" : worst <= 3 ? "⚠️ 有少少" : "❌ 對錯位")),
       原文: l.src.slice(0, 24)
     };
   });
