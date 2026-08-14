@@ -972,13 +972,19 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       喺香港用 → 揀香港。俾台灣客／同事睇 → 揀台灣。唔肯定 → 揀香港。
     </div>
 
-    <div id="s2tAdvOpts">
     <label class="field-label" style="margin-top:14px">字型處理</label>
     <div class="seg" id="s2tRedrawSeg">
       <button type="button" class="active" data-redraw="changed">✏️ 只換需要改嘅字</button>
       <button type="button" data-redraw="all">🅰️ 全部漢字統一字型</button>
     </div>
-    <div class="note"><b>只換需要改嘅字</b>＝最大程度保留原檔（未改嘅字連 byte 都一樣），但同一行會出現兩種字體。<b>統一字型</b>＝連唔使改嘅漢字都用新字型重繪，成頁字體一致、睇落乾淨，代價係原本嘅楷體／宋體美術效果會冇咗（拼音、數字、英文一律唔郁）。想兩樣都要嘅話，就上載對應款式嘅字型（楷配楷、宋配明），再喺下面逐隻指定。</div>
+    <div class="note">
+      <b>只換需要改嘅字</b> ＝ 最大程度保留原檔（未改嘅字連 byte 都一樣），
+      但同一行會撈埋兩種字體，睇落一時粗一時幼。<br>
+      <b>全部漢字統一字型</b> ＝ 連唔使改嘅漢字都用新字型重繪，
+      <b>成頁字體一致</b>。拼音、數字、英文一律唔郁。<br>
+      代價：原本嘅楷體／宋體美術效果會冇咗。想兩樣都要，就上載對應款式嘅字型
+      （楷配楷、宋配明），再喺進階模式逐隻指定。
+    </div>
 
     <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer" id="s2tPunctRow" hidden>
       <input type="checkbox" id="s2tPunct">
@@ -986,6 +992,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </label>
 
     <label class="field-label" style="margin-top:14px">詞組優先表（每行一個 <code>簡詞=繁詞</code>，優先過內建詞庫）</label>
+    <div id="s2tAdvOpts">
     <textarea id="s2tPhrases" rows="4" placeholder="呢度預設係空白。㩒下面粒掣就會載入一批香港常用詞。"></textarea>
     <div class="export-row" style="margin-top:8px">
       <button class="btn secondary" id="s2tSampleList" style="padding:6px 12px;font-size:.84rem">📋 載入常用範例</button>
@@ -4804,6 +4811,28 @@ $("s2tGo").onclick = async () => {
   const st = $("s2tStatus");
   if (!S2.buf) { setStatus(st, "❌ 未載入 PDF。", "err"); return; }
   if (!S2.fonts.length) { setStatus(st, "❌ 請先喺上面①上載至少一隻繁體字型。", "err"); return; }
+
+  // ⚠️ 安全網（2026-08-15 加）：「全部漢字統一字型」會重繪成本書，
+  // 一旦用咗 OTF／CFF 字型，實測會出現以下情況：
+  //   • Chrome 個字型檢查器唔收 → 靜靜退去用系統字型
+  //   • 而 PDF 用 Identity-H（存嘅係字形編號唔係文字）
+  //   → 成本書變晒怪獸字，而且係喺輸出之後先發現
+  // 「只換需要改嘅字」都會中，但範圍細好多；統一字型係全書中招，所以先攔一攔。
+  if (S2.redraw === "all"){
+    const bad = S2.fonts.filter(f => S2.assign && Object.values(S2.assign).includes(f.id) || f.auto)
+                        .filter(f => f.flavour && f.flavour !== "ttf");
+    if (bad.length){
+      const names = bad.map(f => `${f.name}（${String(f.flavour).toUpperCase()}）`).join("、");
+      const go = confirm(
+        `⚠️ 你揀咗「全部漢字統一字型」，但用緊嘅字型唔係 TTF：\n${names}\n\n` +
+        `實測：OTF／CFF 字型喺瀏覽器度會畫錯字形，成本書會變怪獸字，\n` +
+        `而且要匯出之後先見到。\n\n` +
+        `建議：改用 TTF 格式嘅繁體字型（例如 NotoSansTC-Regular.ttf）。\n\n` +
+        `仍然要繼續？`
+      );
+      if (!go){ setStatus(st, "已取消。換一隻 TTF 字型再試就穩陣。", "warn"); return; }
+    }
+  }
   try {
     await s2tEnsureLibs(st);
     setStatus(st, "⏳ 轉換中…", "busy");
