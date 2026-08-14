@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDF 工作枱 · 私隱優先嘅 PDF 工具</title>
+<!-- 空白 favicon：唔加嘅話瀏覽器會自動去攞 /favicon.ico，
+     攞唔到就喺 Network 出一條紅色 404。功能上冇影響，
+     但 demo 俾 IT 睇嗰陣一條紅字都唔好有。 -->
+<link rel="icon" href="data:,">
 <script src="lib/coi-serviceworker.js"></script>
 <script src="lib/pdf-lib.min.js"></script>
 <script src="lib/pdf.min.js"></script>
@@ -2713,7 +2717,9 @@ const OCR = {
   buf: null, name: "", pdfjsDoc: null,
   libReady: false, worker: null, workerLang: null,
   running: false, abort: false,
-  pages: []   // { pageNo, lines }
+  pages: [],  // { pageNo, lines }
+  dbgSlots: [],  // 置換診斷紀錄，每次匯出置換版會重設
+  dbgJSON(){ return ocrDbgJSON(); }
 };
 
 /* ---------- 偵測部機，自動建議設定 ---------- */
@@ -3515,12 +3521,14 @@ function ocrDetectCharSlots(ctx, bx, bTop, bw, bh, nChars, sc){
 
   // 段數啱啱好等於字數 → 直接用（最理想）
   if (runs.length === nChars){
+    OCR._dbgRuns = runs.length; OCR._dbgMode = "墨跡";     // 診斷用，唔影響邏輯
     return runs.map(r => ({ x: bx + r[0] / sc, w: (r[1] - r[0]) / sc }));
   }
   // 段數唔啱（筆畫斷開／字黐埋）→ 用整體墨水範圍平均切，起碼修正咗左右留白
   const first = runs[0][0], last = runs[runs.length - 1][1];
   const span = last - first;
-  if (span < nChars * 3) return null;
+  if (span < nChars * 3){ OCR._dbgRuns = runs.length; OCR._dbgMode = "放棄"; return null; }
+  OCR._dbgRuns = runs.length; OCR._dbgMode = "平均切";     // 診斷用，唔影響邏輯
   const step = span / nChars;
   const out = [];
   for (let i = 0; i < nChars; i++) out.push({ x: bx + (first + i * step) / sc, w: step / sc });
@@ -3635,6 +3643,7 @@ function ocrCheckFontUsable(bytes){
 /* 產生「畫面真係變咗繁體」嘅 PDF */
 async function ocrBuildReplacedPdf(opts){
   const { variant, minConf, onProg } = opts;
+  OCR.dbgSlots = [];              // 每次匯出重新收集診斷資料
   onProg && onProg("準備緊字型…");
   const sup = await ensureCjkSupport();
   if (!sup.ok || !sup.fontBytes) throw new Error("攞唔到中文字型：" + (sup.reason || "未知原因"));
@@ -3685,9 +3694,18 @@ async function ocrBuildReplacedPdf(opts){
       const h = (it.bBot - it.bTop);
       const nCh = [...src].length;
       // ① 先試由原圖整行切出字位
+      OCR._dbgRuns = null; OCR._dbgMode = null;
       let slots = ocrDetectCharSlots(ctx, it.bx, it.bTop, it.bw, h, nCh, sc);
       // ② 切唔到就用估算做起點，再逐個字對準墨跡（唔會成行放棄）
-      if (!slots) slots = ocrCharBoxes(src, it.bx, it.bw).map(b => ({ x: b.x, w: b.w }));
+      if (!slots){ slots = ocrCharBoxes(src, it.bx, it.bw).map(b => ({ x: b.x, w: b.w })); OCR._dbgMode = "估算"; }
+
+      // ── 診斷紀錄（純記錄，唔改任何行為）──────────────────
+      const dbg = { p: pg.pageNo, src, dst, n: nCh,
+                    runs: OCR._dbgRuns, mode: OCR._dbgMode,
+                    bx: +it.bx.toFixed(1), bw: +it.bw.toFixed(1),
+                    slotX: slots.map(s => +s.x.toFixed(1)),
+                    chars: [] };
+      OCR.dbgSlots.push(dbg);
 
       const dchars = [...dst];
       const schars = [...src];
@@ -3699,10 +3717,13 @@ async function ocrBuildReplacedPdf(opts){
         }
         // 逐個字對準真實墨跡位置；對唔準就淨係跳過呢個字
         const cb = ocrSnapSlot(ctx, slots[i].x, slots[i].w, it.bTop, h, sc, lastRight);
-        if (!cb){ skipGeom++; continue; }
+        if (!cb){ skipGeom++; dbg.chars.push({ i, s: schars[i], d: dchars[i], r: "對唔準" }); continue; }
         lastRight = cb.x + cb.w;
         const bg = ocrSampleBg(ctx, cb.x * sc, it.bTop * sc, cb.w * sc, h * sc);
-        if (!bg){ skipBg++; continue; }                       // 背景唔乾淨 → 唔敢塗
+        if (!bg){ skipBg++; dbg.chars.push({ i, s: schars[i], d: dchars[i], r: "背景唔乾淨" }); continue; }
+        dbg.chars.push({ i, s: schars[i], d: dchars[i], r: "畫咗",
+                         sx: +slots[i].x.toFixed(1), sw: +slots[i].w.toFixed(1),
+                         cx: +cb.x.toFixed(1), cw: +cb.w.toFixed(1) });
 
         const y = pageH - it.bBot;
         // 塗蓋範圍略為外擴：原字筆畫（例如「体」個「本」）有機會超出偵測到嘅墨跡範圍，
@@ -3728,7 +3749,38 @@ async function ocrBuildReplacedPdf(opts){
 
   onProg && onProg("儲存緊…");
   const bytes = await doc.save();
+  try { ocrDbgReport(); } catch(e){}
   return { bytes, patched, skipConf, skipBg, skipRot, unchanged, skipGeom };
+}
+
+/* 置換完自動喺 Console 印一份診斷摘要。
+   目的：唔使用家記得打任何指令，撳完「匯出置換版」直接 F12 就見到。
+   純讀取，唔改任何嘢。 */
+function ocrDbgReport(){
+  const D = OCR.dbgSlots || [];
+  if (!D.length) return;
+  const byMode = {};
+  D.forEach(l => { byMode[l.mode || "?"] = (byMode[l.mode || "?"] || 0) + 1; });
+  console.log("%c=== 置換診斷摘要 ===", "font-weight:bold;font-size:14px");
+  console.log("處理咗", D.length, "行；字位偵測方式：", byMode);
+  console.log("「墨跡」＝切得準；「平均切」＝切唔到字數，改用平均分（最易對錯位）；「估算」＝完全切唔到");
+
+  // 邊啲行有問題：用「平均切」或者有跳過嘅字
+  const bad = D.filter(l => l.mode !== "墨跡" || l.chars.some(c => c.r !== "畫咗"));
+  console.log("有風險嘅行：", bad.length, "／", D.length);
+  console.table(D.map(l => ({
+    頁: l.p, 字數: l.n, 墨跡段數: l.runs, 方式: l.mode,
+    要改: l.chars.length,
+    畫咗: l.chars.filter(c => c.r === "畫咗").length,
+    跳過: l.chars.filter(c => c.r !== "畫咗").length,
+    原文: l.src.slice(0, 24)
+  })));
+  console.log("要成份詳細數據俾人分析，喺下面貼呢一行：");
+  console.log("%ccopy(OCR.dbgJSON())", "background:#eee;padding:2px 6px;font-family:monospace");
+}
+/* 將診斷資料變成一段可以複製嘅文字 */
+function ocrDbgJSON(){
+  return JSON.stringify(OCR.dbgSlots || [], null, 1);
 }
 async function ocrBuildSearchablePdf(opts){
   const { toTraditional, variant, onProg } = opts;
