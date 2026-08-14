@@ -223,6 +223,55 @@ input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;fo
 .opt-grid{display:flex;flex-wrap:wrap;gap:16px;margin:12px 0}
 .opt-grid label{font-size:.86rem;display:flex;flex-direction:column;gap:4px;font-weight:600}
 .opt-grid select,.opt-grid input[type=text]{padding:7px;border:1px solid var(--line);border-radius:7px;font-size:.9rem;background:#FCFDFB;min-width:120px;font-weight:400}
+/* ===== 睇書模式：全螢幕閱讀器 ===== */
+#rdViewer{
+  position:fixed; inset:0; z-index:9999; display:none;
+  background:#121815; color:#E8EFEA;
+  flex-direction:column;
+}
+#rdViewer.on{display:flex}
+#rdBar{
+  flex:0 0 auto; display:flex; align-items:center; gap:8px;
+  padding:8px 12px; background:rgba(18,24,21,.96);
+  border-bottom:1px solid #2A342F; font-size:.85rem;
+  flex-wrap:wrap;
+}
+#rdBar button{
+  appearance:none; border:1px solid #35423C; background:#1C2521; color:#E8EFEA;
+  padding:6px 12px; border-radius:8px; font-size:.85rem; font-weight:600; cursor:pointer;
+}
+#rdBar button:hover{background:#26312B}
+#rdBar button:focus-visible{outline:2px solid #4FB89A; outline-offset:1px}
+#rdBar .sp{flex:1 1 auto}
+#rdBar input{
+  width:72px; padding:5px 8px; border-radius:8px;
+  border:1px solid #35423C; background:#1C2521; color:#E8EFEA; font-size:.85rem;
+}
+#rdBar .lbl{color:#9DB0A6}
+#rdStage{
+  flex:1 1 auto; overflow:auto; position:relative;
+  display:flex; flex-direction:column; align-items:center;
+  gap:18px; padding:12px; scroll-behavior:auto;
+}
+#rdStage.flip{justify-content:center; gap:0; padding:0; overflow:hidden}
+.rdSpread{
+  display:flex; align-items:flex-start; justify-content:center;
+  background:#FFF; box-shadow:0 4px 24px rgba(0,0,0,.5);
+  max-width:100%;
+}
+.rdSpread canvas{display:block; height:auto}
+.rdPlaceholder{
+  display:flex; align-items:center; justify-content:center;
+  color:#5C6B63; font-size:.85rem; min-height:200px;
+}
+#rdHint{
+  position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+  background:rgba(18,24,21,.92); border:1px solid #35423C; border-radius:999px;
+  padding:6px 16px; font-size:.8rem; color:#9DB0A6; pointer-events:none;
+  transition:opacity .4s;
+}
+@media (prefers-reduced-motion:reduce){ #rdHint{transition:none} }
+
 .note{background:#F4FAF7;border-left:4px solid var(--accent);padding:10px 12px;border-radius:0 8px 8px 0;font-size:.84rem;color:var(--ink-soft);margin:10px 0}
 .note.warn{background:#FCF1E8;border-left-color:var(--warn)}
 .note b{color:var(--ink)}
@@ -252,6 +301,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
       <button data-panel="panel-ocr" role="tab">🔍 掃描件認字</button>
+      <button data-panel="panel-reader" role="tab">📖 睇書模式</button>
       <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
     </nav>
   </div>
@@ -774,6 +824,96 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   </div>
 </section>
 
+<!-- ============ 11. 睇書模式 ============ -->
+<section id="panel-reader" class="panel">
+  <div class="box">
+    <h2>睇書模式</h2>
+    <p class="desc">全螢幕左右孖頁睇書，同埋將孖頁合成一張圖匯出。全部喺你部機做，份檔案唔會離開電腦。</p>
+    <div class="dropzone" id="rdDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="rdFileInput" accept="application/pdf">
+    <ul class="file-list" id="rdFileList"></ul>
+    <div class="status" id="rdStatus"></div>
+  </div>
+
+  <div class="box" id="rdOptionsBox" style="display:none">
+    <h2>排版</h2>
+
+    <label class="field-label">封面點擺？</label>
+    <div class="seg" id="rdCoverSeg">
+      <button class="active" data-view="cover">第 1 頁自己一版，第 2、3 頁先開始孖</button>
+      <button data-view="nocover">第 1、2 頁就孖埋一齊</button>
+    </div>
+    <div class="note">大部分書都揀左邊嗰個：封面本身就係單獨一版，跟住先係跨頁。</div>
+
+    <label class="field-label">邊頁行先？</label>
+    <div class="seg" id="rdDirSeg">
+      <button class="active" data-view="ltr">左→右（細頁數喺左）</button>
+      <button data-view="rtl">右→左（細頁數喺右，直排中文書）</button>
+    </div>
+    <div class="note">傳統直排中文書、日文漫畫係由右揭到左，細頁數擺喺右邊。揀錯咗兩頁會調轉。</div>
+
+    <label class="field-label">跳去第幾頁</label>
+    <div class="export-row">
+      <input type="number" id="rdJump" min="1" placeholder="打頁數" style="max-width:140px">
+      <button class="btn" id="rdJumpGo">跳去</button>
+      <span class="hint" id="rdPageInfo"></span>
+    </div>
+  </div>
+
+  <div class="box" id="rdReadBox" style="display:none">
+    <h2>睇書</h2>
+    <label class="field-label">翻頁方式</label>
+    <div class="seg" id="rdModeSeg">
+      <button class="active" data-view="flip">一版一版揭</button>
+      <button data-view="scroll">連續捲動</button>
+    </div>
+    <div class="note">
+      <b>一版一版揭</b>：一次淨係見到一個跨頁，撳左右箭嘴換版，最似睇實體書。<br>
+      <b>連續捲動</b>：所有跨頁由上到下排落去，用滾輪或者上下箭嘴慢慢睇。
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="rdOpen">📖 全螢幕睇書</button>
+    </div>
+    <div class="note">
+      撳咗之後會蓋住成個螢幕（唔使自己撳 F11）。<br>
+      入面嘅掣：<code>←</code> <code>→</code> 揭版／<code>↑</code> <code>↓</code> 捲動／
+      <code>+</code> <code>-</code> 放大縮細／<code>0</code> 一鍵還原／<code>F</code> 切換全螢幕／<code>Esc</code> 收工
+    </div>
+  </div>
+
+  <div class="box" id="rdExportBox" style="display:none">
+    <h2>孖頁合成圖</h2>
+    <p class="desc">將左頁同右頁併成一張圖，一個跨頁一張檔案。用返上面「排版」揀嘅封面同方向設定。</p>
+
+    <label class="field-label">解像度</label>
+    <div class="seg" id="rdDpiSeg">
+      <button data-view="100">省位 100</button>
+      <button class="active" data-view="150">平衡 150</button>
+      <button data-view="200">精細 200</button>
+      <button data-view="300">最靚 300</button>
+    </div>
+
+    <label class="field-label">圖片格式</label>
+    <div class="seg" id="rdFmtSeg">
+      <button class="active" data-view="jpg">JPG（細檔）</button>
+      <button data-view="png">PNG（無損）</button>
+    </div>
+
+    <label class="field-label">中間要唔要留條縫？</label>
+    <div class="seg" id="rdGapSeg">
+      <button class="active" data-view="0">貼實</button>
+      <button data-view="8">細縫</button>
+      <button data-view="24">闊縫</button>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="rdExportGo">⬇️ 匯出孖頁圖</button>
+    </div>
+    <div class="status" id="rdExportStatus"></div>
+  </div>
+</section>
+
 <!-- ============ 10. 簡轉繁 ============ -->
 <section id="panel-s2t" class="panel">
 
@@ -950,6 +1090,101 @@ async function loadPdfLib(arrayBuffer){
   return PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
 }
 
+/* ─────────────────────────────────────────────────────────────
+   受保護 / 受限制 PDF 嘅處理
+
+   ⚠️ 重要事實（2026-08-15 實測證實）：
+   `ignoreEncryption: true` 只係「唔好因為加密而報錯」，
+   **佢完全冇解密**。pdf-lib 由頭到尾都唔支援讀加密 PDF。
+
+   後果分兩種：
+     (a) 好彩嘅話，pdf-lib 照讀到頁數，但匯出嘅頁面係空白
+         （實測：原文 "This is page 1 with real content." → 匯出後抽到空字串）
+     (b) 唔好彩嘅話，連文件骨架都解唔到，即場拋
+         `Expected instance of e, but got instance of undefined`
+         （即係 pdf-lib 個 UnexpectedObjectTypeError，`e` 係壓縮後嘅類別名）
+
+   點解縮圖睇得到？因為縮圖用 pdf.js 畫，而 **pdf.js 係識解密嘅**。
+   所以「睇到 = 改得到」呢個直覺喺呢度唔成立。
+
+   可行做法：借 pdf.js 已經解咗密嘅畫面，逐頁畫落 canvas，
+   再砌返一個全新、乾淨、冇加密嘅 PDF。代價係文字會變成圖片。
+   ───────────────────────────────────────────────────────────── */
+function pdfIsProtected(arrayBuffer){
+  // 直接喺原始 bytes 度搵 /Encrypt，最可靠，唔使靠 pdf-lib 解析成功
+  try {
+    const b = new Uint8Array(arrayBuffer);
+    const tail = b.subarray(Math.max(0, b.length - 4096));
+    const needle = [0x2F, 0x45, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74]; // "/Encrypt"
+    const hunt = (arr) => {
+      outer: for (let i = 0; i + needle.length <= arr.length; i++){
+        for (let j = 0; j < needle.length; j++) if (arr[i + j] !== needle[j]) continue outer;
+        return true;
+      }
+      return false;
+    };
+    return hunt(tail) || hunt(b.subarray(0, Math.min(b.length, 4096)));
+  } catch(e){ return false; }
+}
+
+/* 用 pdf.js 逐頁畫返出嚟，砌一個冇加密嘅新 PDF。
+   password 可以係 null（大部分「restricted」PDF 唔使開啟密碼）。 */
+async function unlockPdfByRaster(arrayBuffer, opts){
+  opts = opts || {};
+  const dpi = opts.dpi || 150;
+  const onProg = opts.onProg;
+  let src;
+  try {
+    src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: opts.password }).promise;
+  } catch (err){
+    if (err && err.name === "PasswordException"){
+      const pw = prompt("呢份 PDF 要開啟密碼先解得到，請輸入：");
+      if (pw == null) throw new Error("冇輸入密碼，已取消。");
+      src = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password: pw }).promise;
+    } else throw err;
+  }
+  const out = await PDFLib.PDFDocument.create();
+  const scale = dpi / 72;
+  for (let i = 1; i <= src.numPages; i++){
+    onProg && onProg(`解鎖緊第 ${i}/${src.numPages} 頁…`);
+    const page = await src.getPage(i);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(vp.width));
+    canvas.height = Math.max(1, Math.floor(vp.height));
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.9));
+    const img = await out.embedJpg(await blob.arrayBuffer());
+    // 用返原本嘅 PDF 尺寸（point），咁印出嚟大細同原本一樣
+    const base = page.getViewport({ scale: 1 });
+    const p = out.addPage([base.width, base.height]);
+    p.drawImage(img, { x: 0, y: 0, width: base.width, height: base.height });
+    canvas.width = canvas.height = 0;
+  }
+  src.destroy();
+  return (await out.save()).buffer;
+}
+
+/* 載入之前叫一次：有加密就問准，然後解鎖。
+   返回一個一定用得嘅 ArrayBuffer。 */
+async function prepPdfBuffer(arrayBuffer, fileName, statusEl){
+  if (!pdfIsProtected(arrayBuffer)) return arrayBuffer;
+  const ok = confirm(
+    `「${fileName}」有加密保護（受保護／受限制 PDF）。\n\n` +
+    `負責編輯嘅程式庫解唔到密，夾硬做會匯出空白頁，或者直接出錯。\n\n` +
+    `要唔要而家解鎖？做法係將每一頁畫成圖片，砌返一個乾淨嘅 PDF。\n\n` +
+    `• 版面、圖片完全一樣\n` +
+    `• 但文字會變成圖片，揀唔到、搵唔到\n` +
+    `• 想攞返文字，解鎖之後入「🔍 掃描件認字」行一次就得\n\n` +
+    `撳「確定」解鎖，撳「取消」就唔處理呢個檔案。`
+  );
+  if (!ok) throw new Error(`「${fileName}」有加密保護，已經略過。`);
+  return await unlockPdfByRaster(arrayBuffer, {
+    dpi: 150,
+    onProg: msg => { if (statusEl) setStatus(statusEl, "⏳ " + msg, "busy"); }
+  });
+}
+
 /* 解析頁數字串，例如 "1,3,5-8" → [1,3,5,6,7,8]（1-based，保留輸入順序） */
 function parsePageList(str, maxPages, label){
   const pages = [];
@@ -1023,7 +1258,9 @@ async function addWorkspaceFiles(files){
   for (const file of files){
     setStatus(st, `⏳ 讀緊「${file.name}」，請稍候…`, "busy");
     try {
-      const buffer = await file.arrayBuffer();
+      let buffer = await file.arrayBuffer();
+      // 有加密就先解鎖，唔係之後匯出會出空白頁或者報錯
+      buffer = await prepPdfBuffer(buffer, file.name, st);
 
       // 用 pdf.js 產生縮圖；如果 PDF 需要開啟密碼，會問你攞密碼
       let pdfjsDoc, password;
@@ -1246,7 +1483,7 @@ wireDropzone($("spDrop"), $("spFileInput"), async files => {
   const file = files[0];
   setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
   try {
-    SP.buffer = await file.arrayBuffer();
+    SP.buffer = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
     const doc = await loadPdfLib(SP.buffer);
     SP.file = file;
     SP.pageCount = doc.getPageCount();
@@ -4591,6 +4828,364 @@ async function s2tRenderPreview(pageNo){
   await draw(S2.pdfjsDoc, $("s2tCanvasA"));
   await draw(S2.outDoc, $("s2tCanvasB"));
 }
+
+/* =====================================================
+   11) 睇書模式 —— 全螢幕孖頁閱讀 + 孖頁合成圖匯出
+   ⚠️ 排版邏輯（封面／方向）只寫一次，閱讀同匯出共用，
+      唔會出現「睇嘅時候啱、匯出嘅時候調轉」。
+===================================================== */
+const RD = {
+  buf: null, name: "", doc: null, pageCount: 0,
+  cover: true,          // 第 1 頁自己一版
+  rtl: false,           // 右→左（直排中文書）
+  mode: "flip",         // flip | scroll
+  dpi: 150, fmt: "jpg", gap: 0,
+  spreads: [],          // [[頁碼...], ...] 1-based
+  idx: 0,               // 而家睇緊第幾個跨頁
+  zoom: 1,
+  cache: new Map()      // spreadIndex -> canvas
+};
+
+/* 將頁數切成一個個跨頁。呢個就係「封面」設定嘅唯一定義位。 */
+function rdBuildSpreads(pageCount, cover){
+  const out = [];
+  let p = 1;
+  if (cover && pageCount >= 1){ out.push([1]); p = 2; }
+  for (; p <= pageCount; p += 2){
+    out.push(p + 1 <= pageCount ? [p, p + 1] : [p]);
+  }
+  return out;
+}
+
+/* 一個跨頁入面，實際由左到右嘅擺法。
+   rtl（右→左）嘅書，細頁數要擺喺右邊，所以掉轉。 */
+function rdVisualOrder(spread, rtl){
+  return (rtl && spread.length === 2) ? [spread[1], spread[0]] : spread.slice();
+}
+
+function rdRecalc(){
+  RD.spreads = rdBuildSpreads(RD.pageCount, RD.cover);
+  if (RD.idx >= RD.spreads.length) RD.idx = Math.max(0, RD.spreads.length - 1);
+  RD.cache.clear();
+  const info = $("rdPageInfo");
+  if (info) info.textContent = RD.pageCount
+    ? `一共 ${RD.pageCount} 頁，砌成 ${RD.spreads.length} 個跨頁`
+    : "";
+}
+
+/* 將一個跨頁畫成一個 canvas（閱讀同匯出都用呢個） */
+async function rdRenderSpread(spreadIdx, dpi){
+  const spread = RD.spreads[spreadIdx];
+  if (!spread) return null;
+  const order = rdVisualOrder(spread, RD.rtl);
+  const scale = dpi / 72;
+  const canvases = [];
+  for (const pageNo of order){
+    const page = await RD.doc.getPage(pageNo);
+    const vp = page.getViewport({ scale });
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.floor(vp.width));
+    c.height = Math.max(1, Math.floor(vp.height));
+    await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+    canvases.push(c);
+  }
+  const gap = RD.gap * (dpi / 150);
+  const H = Math.max(...canvases.map(c => c.height));
+  const W = canvases.reduce((a, c) => a + c.width, 0) + gap * (canvases.length - 1);
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(W));
+  out.height = Math.max(1, Math.round(H));
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, out.width, out.height);
+  let x = 0;
+  for (const c of canvases){
+    ctx.drawImage(c, Math.round(x), Math.round((H - c.height) / 2));  // 高度唔同就打直置中
+    x += c.width + gap;
+    c.width = c.height = 0;
+  }
+  return out;
+}
+
+/* ---------- 閱讀器 ---------- */
+function rdFitZoom(){
+  const stage = $("rdStage");
+  const el = stage.querySelector(".rdSpread canvas");
+  if (!el || !el.dataset.natW) return;
+  const availW = stage.clientWidth - 24;
+  const availH = stage.clientHeight - 24;
+  const nw = +el.dataset.natW, nh = +el.dataset.natH;
+  RD.zoom = Math.min(availW / nw, availH / nh);
+  rdApplyZoom();
+  stage.scrollTop = 0; stage.scrollLeft = 0;
+}
+function rdApplyZoom(){
+  const stage = $("rdStage");
+  stage.querySelectorAll(".rdSpread canvas").forEach(c => {
+    const nw = +c.dataset.natW;
+    if (nw) c.style.width = Math.round(nw * RD.zoom) + "px";
+  });
+  const z = $("rvZoom");
+  if (z) z.textContent = Math.round(RD.zoom * 100) + "%";
+}
+function rdHint(msg){
+  const h = $("rdHint");
+  if (!h) return;
+  h.textContent = msg;
+  h.style.opacity = "1";
+  clearTimeout(RD._hintT);
+  RD._hintT = setTimeout(() => { h.style.opacity = "0"; }, 1800);
+}
+async function rdCanvasFor(i){
+  if (RD.cache.has(i)) return RD.cache.get(i);
+  const c = await rdRenderSpread(i, 150);
+  if (c){
+    c.dataset.natW = c.width; c.dataset.natH = c.height;
+    RD.cache.set(i, c);
+    if (RD.cache.size > 12){                       // 唔好食爆記憶體
+      const k = RD.cache.keys().next().value;
+      RD.cache.delete(k);
+    }
+  }
+  return c;
+}
+async function rdShowFlip(){
+  const stage = $("rdStage");
+  stage.className = "flip";
+  stage.innerHTML = '<div class="rdPlaceholder">畫緊…</div>';
+  const c = await rdCanvasFor(RD.idx);
+  stage.innerHTML = "";
+  if (!c) return;
+  const wrap = document.createElement("div");
+  wrap.className = "rdSpread";
+  wrap.appendChild(c);
+  stage.appendChild(wrap);
+  rdFitZoom();
+  rdUpdatePos();
+}
+async function rdShowScroll(){
+  const stage = $("rdStage");
+  stage.className = "";
+  stage.innerHTML = "";
+  for (let i = 0; i < RD.spreads.length; i++){
+    const wrap = document.createElement("div");
+    wrap.className = "rdSpread";
+    wrap.dataset.i = i;
+    wrap.innerHTML = '<div class="rdPlaceholder">第 ' + RD.spreads[i].join("–") + ' 頁</div>';
+    stage.appendChild(wrap);
+  }
+  // 見到先畫，唔會一次過畫晒成本書
+  const io = new IntersectionObserver(async (ents) => {
+    for (const e of ents){
+      if (!e.isIntersecting) continue;
+      const el = e.target, i = +el.dataset.i;
+      if (el.dataset.done) continue;
+      el.dataset.done = "1";
+      const c = await rdCanvasFor(i);
+      if (c){ el.innerHTML = ""; el.appendChild(c); rdApplyZoom(); }
+    }
+  }, { root: stage, rootMargin: "600px" });
+  stage.querySelectorAll(".rdSpread").forEach(el => io.observe(el));
+  RD._io && RD._io.disconnect();
+  RD._io = io;
+  setTimeout(() => {
+    const first = stage.querySelector(".rdSpread canvas");
+    if (first) rdFitZoom(); else RD.zoom = 1;
+    rdGoScrollTo(RD.idx);
+  }, 350);
+  rdUpdatePos();
+}
+function rdGoScrollTo(i){
+  const el = $("rdStage").querySelector(`.rdSpread[data-i="${i}"]`);
+  if (el) el.scrollIntoView({ block: "start" });
+}
+function rdUpdatePos(){
+  const s = RD.spreads[RD.idx];
+  const el = $("rvPos");
+  if (el && s) el.textContent = `第 ${s.join("–")} 頁 ｜ 版 ${RD.idx + 1}/${RD.spreads.length}`;
+}
+async function rdRefresh(){
+  if (RD.mode === "flip") await rdShowFlip(); else await rdShowScroll();
+}
+async function rdGo(delta){
+  const n = RD.idx + delta;
+  if (n < 0 || n >= RD.spreads.length) return;
+  RD.idx = n;
+  if (RD.mode === "flip") await rdShowFlip();
+  else { rdGoScrollTo(RD.idx); rdUpdatePos(); }
+}
+/* 打個頁數，跳去嗰頁所屬嘅跨頁 */
+function rdSpreadOfPage(pageNo){
+  for (let i = 0; i < RD.spreads.length; i++) if (RD.spreads[i].includes(pageNo)) return i;
+  return -1;
+}
+async function rdJumpTo(pageNo){
+  if (!RD.pageCount) return;
+  pageNo = Math.max(1, Math.min(RD.pageCount, Math.round(pageNo || 0)));
+  const i = rdSpreadOfPage(pageNo);
+  if (i < 0) return;
+  RD.idx = i;
+  if (RD.mode === "flip") await rdShowFlip();
+  else { rdGoScrollTo(i); rdUpdatePos(); }
+  rdHint(`跳咗去第 ${pageNo} 頁`);
+}
+async function rdOpenViewer(){
+  if (!RD.doc){ alert("要先揀一個 PDF。"); return; }
+  const v = $("rdViewer");
+  v.classList.add("on");
+  v.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  await rdRefresh();
+  try { if (!document.fullscreenElement) await v.requestFullscreen(); } catch(e){ /* 用家阻止咗都照睇到 */ }
+  rdHint("← → 揭版 ｜ 0 一鍵還原 ｜ Esc 收工");
+}
+async function rdCloseViewer(){
+  const v = $("rdViewer");
+  v.classList.remove("on");
+  v.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  RD._io && RD._io.disconnect();
+  try { if (document.fullscreenElement) await document.exitFullscreen(); } catch(e){}
+}
+
+/* ---------- 匯出孖頁圖 ---------- */
+async function rdExportSpreads(){
+  const st = $("rdExportStatus");
+  if (!RD.doc){ setStatus(st, "要先揀一個 PDF。", "err"); return; }
+  try {
+    const type = RD.fmt === "png" ? "image/png" : "image/jpeg";
+    const ext  = RD.fmt === "png" ? "png" : "jpg";
+    const files = [];
+    for (let i = 0; i < RD.spreads.length; i++){
+      setStatus(st, `⏳ 畫緊第 ${i + 1}/${RD.spreads.length} 個跨頁…`, "busy");
+      const c = await rdRenderSpread(i, RD.dpi);
+      if (!c) continue;
+      const blob = await new Promise(r => c.toBlob(r, type, 0.92));
+      const label = RD.spreads[i].join("-");
+      files.push({ name: `spread-${String(i + 1).padStart(3, "0")}_p${label}.${ext}`, blob });
+      c.width = c.height = 0;
+    }
+    if (!files.length){ setStatus(st, "冇嘢可以匯出。", "err"); return; }
+    setStatus(st, "⏳ 打包緊…", "busy");
+    const zip = new JSZip();
+    for (const f of files) zip.file(f.name, f.blob);
+    const out = await zip.generateAsync({ type: "blob" });
+    downloadBlob(out, (RD.name || "book").replace(/\.pdf$/i, "") + "_孖頁.zip");
+    setStatus(st, `✅ 匯出咗 ${files.length} 張孖頁圖。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 匯出失敗：" + (err.message || err), "err");
+  }
+}
+
+/* ---------- 載入 ---------- */
+async function rdLoadFile(file){
+  const st = $("rdStatus");
+  if (!file) return;
+  try {
+    setStatus(st, "⏳ 讀緊…", "busy");
+    const buf = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
+    RD.buf = buf; RD.name = file.name;
+    if (RD.doc){ try { RD.doc.destroy(); } catch(e){} }
+    RD.doc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+    RD.pageCount = RD.doc.numPages;
+    RD.idx = 0;
+    rdRecalc();
+    $("rdFileList").innerHTML =
+      `<li><span class="name">📖 ${escapeHtml(file.name)}</span>` +
+      `<span class="pages">共 ${RD.pageCount} 頁</span></li>`;
+    ["rdOptionsBox", "rdReadBox", "rdExportBox"].forEach(id => { $(id).style.display = ""; });
+    setStatus(st, `✅ 讀好喇，${RD.pageCount} 頁。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err");
+  }
+}
+
+/* ---------- 接線 ---------- */
+(function rdWire(){
+  const seg = (id, fn) => {
+    const box = $(id);
+    if (!box) return;
+    box.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      box.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      fn(b.dataset.view);
+    });
+  };
+  seg("rdCoverSeg", v => { RD.cover = (v === "cover"); rdRecalc(); });
+  seg("rdDirSeg",   v => { RD.rtl   = (v === "rtl");   RD.cache.clear(); });
+  seg("rdModeSeg",  v => { RD.mode  = v; });
+  seg("rdDpiSeg",   v => { RD.dpi   = +v; });
+  seg("rdFmtSeg",   v => { RD.fmt   = v; });
+  seg("rdGapSeg",   v => { RD.gap   = +v; RD.cache.clear(); });
+
+  wireDropzone($("rdDrop"), $("rdFileInput"), files => rdLoadFile(files[0]));
+
+  $("rdJumpGo") && $("rdJumpGo").addEventListener("click", () => rdJumpTo(+$("rdJump").value));
+  $("rdJump")   && $("rdJump").addEventListener("keydown", e => { if (e.key === "Enter") rdJumpTo(+e.target.value); });
+  $("rdOpen")   && $("rdOpen").addEventListener("click", rdOpenViewer);
+  $("rdExportGo") && $("rdExportGo").addEventListener("click", rdExportSpreads);
+
+  $("rvPrev")  && $("rvPrev").addEventListener("click", () => rdGo(-1));
+  $("rvNext")  && $("rvNext").addEventListener("click", () => rdGo(1));
+  $("rvClose") && $("rvClose").addEventListener("click", rdCloseViewer);
+  $("rvFit")   && $("rvFit").addEventListener("click", () => { rdFitZoom(); rdHint("還原咗，貼晒四邊"); });
+  $("rvZoomIn")  && $("rvZoomIn").addEventListener("click", () => { RD.zoom *= 1.15; rdApplyZoom(); });
+  $("rvZoomOut") && $("rvZoomOut").addEventListener("click", () => { RD.zoom /= 1.15; rdApplyZoom(); });
+  $("rvJumpGo")  && $("rvJumpGo").addEventListener("click", () => rdJumpTo(+$("rvJump").value));
+  $("rvJump")    && $("rvJump").addEventListener("keydown", e => { if (e.key === "Enter") rdJumpTo(+e.target.value); });
+  $("rvFs") && $("rvFs").addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await $("rdViewer").requestFullscreen();
+    } catch(e){ rdHint("部瀏覽器唔俾切換全螢幕"); }
+  });
+
+  document.addEventListener("keydown", e => {
+    if (!$("rdViewer") || !$("rdViewer").classList.contains("on")) return;
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const stage = $("rdStage");
+    switch (e.key){
+      case "ArrowRight": case "PageDown": e.preventDefault(); rdGo(1); break;
+      case "ArrowLeft":  case "PageUp":   e.preventDefault(); rdGo(-1); break;
+      case "ArrowDown":  if (RD.mode === "scroll"){ e.preventDefault(); stage.scrollTop += 120; } break;
+      case "ArrowUp":    if (RD.mode === "scroll"){ e.preventDefault(); stage.scrollTop -= 120; } break;
+      case "+": case "=": e.preventDefault(); RD.zoom *= 1.15; rdApplyZoom(); break;
+      case "-": case "_": e.preventDefault(); RD.zoom /= 1.15; rdApplyZoom(); break;
+      case "0": e.preventDefault(); rdFitZoom(); rdHint("還原咗，貼晒四邊"); break;
+      case "f": case "F": e.preventDefault(); $("rvFs").click(); break;
+      case "Escape": rdCloseViewer(); break;
+    }
+  });
+  window.addEventListener("resize", () => {
+    if ($("rdViewer") && $("rdViewer").classList.contains("on")) rdFitZoom();
+  });
+})();
+
 </script>
+
+<!-- 睇書模式：全螢幕閱讀器 -->
+<div id="rdViewer" aria-hidden="true">
+  <div id="rdBar">
+    <button id="rvPrev" title="上一版（←）">◀ 上一版</button>
+    <button id="rvNext" title="下一版（→）">下一版 ▶</button>
+    <span class="lbl" id="rvPos">—</span>
+    <span class="lbl">跳去</span>
+    <input type="number" id="rvJump" min="1" placeholder="頁">
+    <button id="rvJumpGo">去</button>
+    <span class="sp"></span>
+    <button id="rvZoomOut" title="縮細（-）">−</button>
+    <span class="lbl" id="rvZoom">100%</span>
+    <button id="rvZoomIn" title="放大（+）">＋</button>
+    <button id="rvFit" title="一鍵還原（0）">⤢ 一鍵還原</button>
+    <button id="rvFs" title="切換全螢幕（F）">⛶ 全螢幕</button>
+    <button id="rvClose" title="離開（Esc）">✕ 收工</button>
+  </div>
+  <div id="rdStage"></div>
+  <div id="rdHint"></div>
+</div>
 </body>
 </html>
