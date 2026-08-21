@@ -301,6 +301,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
       <button data-panel="panel-ocr" role="tab">🔍 掃描件認字</button>
+      <button data-panel="panel-photo" role="tab">📷 相片瘦身</button>
       <button data-panel="panel-reader" role="tab">📖 睇書模式</button>
       <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
     </nav>
@@ -821,6 +822,67 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button class="btn big" style="width:auto" id="ocrExportReplaced">🎨 匯出置換版 PDF</button>
     </div>
     <div class="status" id="ocrRepStatus"></div>
+  </div>
+</section>
+
+<!-- ============ 12. 相片瘦身 ============ -->
+<section id="panel-photo" class="panel">
+  <div class="box">
+    <h2>相片瘦身</h2>
+    <p class="desc">將手機影嘅大相壓細,變成 WhatsApp 嗰種細細張嘅 JPG。全部喺你部機做,啲相唔會離開你部電腦或者手機。</p>
+    <div class="dropzone" id="phDrop" tabindex="0"><strong>拖放相片到呢度</strong><br>或者㩒一下揀相（可以一次過揀好多張）</div>
+    <input type="file" id="phFile" accept="image/*" multiple>
+    <div class="status" id="phStatus"></div>
+  </div>
+
+  <div class="box" id="phOptBox" style="display:none">
+    <h2>要壓到幾細？</h2>
+    <div class="seg" id="phPresetSeg">
+      <button class="active" data-view="wa">💬 WhatsApp 一般</button>
+      <button data-view="small">🪶 再細啲</button>
+      <button data-view="hd">🔍 清楚啲</button>
+      <button data-view="custom">⚙️ 自訂</button>
+    </div>
+    <div class="note" id="phPresetNote"></div>
+
+    <div id="phCustomRow" hidden>
+      <div class="opt-grid">
+        <label>最長嗰邊唔超過（像素）
+          <input type="number" id="phMaxEdge" min="320" max="6000" step="80" value="1600">
+        </label>
+        <label>每張大約唔超過（KB）
+          <input type="number" id="phTargetKb" min="30" max="5000" step="10" value="300">
+        </label>
+      </div>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="phGo">📷 開始壓縮</button>
+    </div>
+    <div class="status" id="phWorkStatus"></div>
+  </div>
+
+  <div class="box" id="phResultBox" style="display:none">
+    <h2>壓好喇</h2>
+    <div class="status ok" id="phSummary"></div>
+
+    <div class="export-row" id="phShareRow" hidden>
+      <button class="btn big" id="phShare">📤 一次過分享／存去相簿</button>
+    </div>
+    <div class="note" id="phShareNote" hidden>
+      手機用呢個最方便：撳完會彈出分享選單,可以直接揀「儲存圖片」入相簿,
+      或者直接揀 WhatsApp send 出去。<b>唔會有 zip 檔。</b>
+    </div>
+
+    <div class="export-row">
+      <button class="btn" id="phSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+    </div>
+    <div class="note">
+      會一張一張咁下載。<b>瀏覽器可能問你「要唔要允許下載多個檔案」,㩒「允許」就得。</b><br>
+      唔想一次過?可以喺下面每張相底下單獨㩒「下載」。
+    </div>
+
+    <div class="img-grid" id="phGrid"></div>
   </div>
 </section>
 
@@ -5240,6 +5302,278 @@ function rdWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", rdWire);
 else rdWire();
+
+
+/* =====================================================
+   12) 相片瘦身 —— 手機大相壓成 WhatsApp 嗰種細 JPG
+   全部喺瀏覽器做，相唔會離開部機。
+===================================================== */
+const PH = {
+  files: [],        // 原始 File
+  items: [],        // { name, outName, blob, url, before, after, w, h }
+  preset: "wa",
+  busy: false
+};
+
+const PH_PRESETS = {
+  wa:     { maxEdge: 1600, kb: 300,  label: "同 WhatsApp send 出去差唔多：最長邊 1600 像素、每張大約 300KB 以下。日常用呢個。" },
+  small:  { maxEdge: 1280, kb: 150,  label: "再細啲：最長邊 1280 像素、每張大約 150KB 以下。夾附件、慳數據用。" },
+  hd:     { maxEdge: 2048, kb: 800,  label: "清楚啲：最長邊 2048 像素、每張大約 800KB 以下。要睇得清文字或者細節先揀。" },
+  custom: { maxEdge: 1600, kb: 300,  label: "自己揀尺寸同大細。" }
+};
+
+function phSettings(){
+  if (PH.preset === "custom"){
+    const e = parseInt($("phMaxEdge").value, 10);
+    const k = parseInt($("phTargetKb").value, 10);
+    return { maxEdge: (e > 0 ? e : 1600), kb: (k > 0 ? k : 300) };
+  }
+  const p = PH_PRESETS[PH.preset] || PH_PRESETS.wa;
+  return { maxEdge: p.maxEdge, kb: p.kb };
+}
+
+function phFmtSize(bytes){
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+/* 讀相 → 位圖。
+   ⚠️ 手機相有 EXIF 旋轉資料：直度影嘅相，檔案入面其實係打橫存，
+   靠 EXIF 話俾睇嘅人「要轉 90 度」。如果唔理佢，壓完會變咗打橫。
+   createImageBitmap 加 imageOrientation:"from-image" 會自動擺正。 */
+async function phDecode(file){
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (e){
+    // 舊瀏覽器冇呢個選項就照試一次
+    try { return await createImageBitmap(file); } catch (e2){}
+    // 最後用返 <img>（新版瀏覽器嘅 <img> 本身會照 EXIF 擺正）
+    return await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => rej(new Error("讀唔到呢個圖片格式"));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+}
+
+function phDrawScaled(bmp, maxEdge){
+  const w0 = bmp.width || bmp.naturalWidth;
+  const h0 = bmp.height || bmp.naturalHeight;
+  const k = Math.min(1, maxEdge / Math.max(w0, h0));   // 只縮唔放大
+  const w = Math.max(1, Math.round(w0 * k));
+  const h = Math.max(1, Math.round(h0 * k));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#FFFFFF";           // PNG 透明位轉 JPG 會變黑，先鋪白
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bmp, 0, 0, w, h);
+  return c;
+}
+
+const phToBlob = (c, q) => new Promise(r => c.toBlob(r, "image/jpeg", q));
+
+/* 壓到目標大細：先二分搵最高畫質，仲係太大就縮埋尺寸再試。 */
+async function phCompress(file, maxEdge, targetBytes){
+  const bmp = await phDecode(file);
+  let edge = maxEdge;
+
+  for (let round = 0; round < 4; round++){
+    const c = phDrawScaled(bmp, edge);
+
+    // 先試最高畫質，本身已經夠細就唔使再壓
+    let best = await phToBlob(c, 0.92);
+    if (best && best.size <= targetBytes){
+      if (bmp.close) bmp.close();
+      return { blob: best, w: c.width, h: c.height, q: 0.92 };
+    }
+
+    // 二分搵「唔超標之下最高」嘅畫質
+    let lo = 0.35, hi = 0.92, pick = null, pickQ = 0.35;
+    for (let i = 0; i < 7; i++){
+      const q = (lo + hi) / 2;
+      const b = await phToBlob(c, q);
+      if (!b) break;
+      if (b.size <= targetBytes){ pick = b; pickQ = q; lo = q; }
+      else hi = q;
+    }
+    if (pick){
+      if (bmp.close) bmp.close();
+      return { blob: pick, w: c.width, h: c.height, q: pickQ };
+    }
+
+    // 畫質已經去到最低都仲超標 → 縮細尺寸再嚟過
+    const floor = await phToBlob(c, 0.35);
+    if (round === 3 || edge <= 640){
+      if (bmp.close) bmp.close();
+      return { blob: floor, w: c.width, h: c.height, q: 0.35, over: true };
+    }
+    edge = Math.round(edge * 0.8);
+  }
+}
+
+function phRender(){
+  const grid = $("phGrid");
+  grid.innerHTML = "";
+  PH.items.forEach((it, i) => {
+    const cut = it.before > 0 ? Math.round((1 - it.after / it.before) * 100) : 0;
+    const d = document.createElement("div");
+    d.className = "img-item";
+    d.innerHTML =
+      `<img src="${it.url}" alt="${escapeHtml(it.name)}">` +
+      `<div class="nm">${escapeHtml(it.name)}</div>` +
+      `<div class="nm">${phFmtSize(it.before)} → <b style="color:var(--accent)">${phFmtSize(it.after)}</b>` +
+      (cut > 0 ? `（慳咗 ${cut}%）` : "") + `</div>` +
+      `<div class="nm">${it.w}×${it.h}${it.over ? " ⚠️ 壓到盡都仲大過目標" : ""}</div>` +
+      `<button class="btn" data-ph-dl="${i}" style="width:100%;margin-top:6px;padding:6px">⬇️ 下載</button>`;
+    grid.appendChild(d);
+  });
+}
+
+async function phRun(){
+  if (PH.busy) return;
+  const st = $("phWorkStatus");
+  if (!PH.files.length){ setStatus(st, "❌ 未揀相。", "err"); return; }
+  const { maxEdge, kb } = phSettings();
+  const target = kb * 1024;
+  PH.busy = true;
+  $("phGo").disabled = true;
+  PH.items.forEach(it => { if (it.url) URL.revokeObjectURL(it.url); });
+  PH.items = [];
+  const skipped = [];
+  try {
+    for (let i = 0; i < PH.files.length; i++){
+      const f = PH.files[i];
+      setStatus(st, `⏳ 壓緊第 ${i + 1}/${PH.files.length} 張…`, "busy");
+      try {
+        const r = await phCompress(f, maxEdge, target);
+        if (!r || !r.blob) throw new Error("壓縮失敗");
+        const base = f.name.replace(/\.[^.]+$/, "");
+        PH.items.push({
+          name: f.name, outName: base + "_細.jpg", blob: r.blob,
+          url: URL.createObjectURL(r.blob),
+          before: f.size, after: r.blob.size, w: r.w, h: r.h, over: !!r.over
+        });
+      } catch (e){
+        skipped.push(f.name);
+      }
+    }
+    if (!PH.items.length){
+      setStatus(st, "❌ 一張都處理唔到。" + (skipped.length ? "（" + skipped.join("、") + "）" : ""), "err");
+      return;
+    }
+    const b = PH.items.reduce((a, x) => a + x.before, 0);
+    const a2 = PH.items.reduce((a, x) => a + x.after, 0);
+    $("phResultBox").style.display = "";
+    setStatus($("phSummary"),
+      `✅ 壓好咗 ${PH.items.length} 張：${phFmtSize(b)} → ${phFmtSize(a2)}` +
+      (b > 0 ? `（總共慳咗 ${Math.round((1 - a2 / b) * 100)}%）` : "") +
+      (skipped.length ? `。有 ${skipped.length} 張處理唔到：${skipped.join("、")}` : ""), "ok");
+    setStatus(st, "", "");
+    phRender();
+    phWireShare();
+    $("phResultBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 出錯：" + (err.message || err), "err");
+  } finally {
+    PH.busy = false;
+    $("phGo").disabled = false;
+  }
+}
+
+/* 手機最順嘅方法：叫系統分享選單，可以直接存去相簿或者 send 去 WhatsApp。
+   完全冇 zip 檔呢回事。 */
+function phWireShare(){
+  const row = $("phShareRow"), note = $("phShareNote");
+  let ok = false;
+  try {
+    const test = PH.items.slice(0, 1).map(it => new File([it.blob], it.outName, { type: "image/jpeg" }));
+    ok = !!(navigator.canShare && navigator.share && test.length && navigator.canShare({ files: test }));
+  } catch (e){ ok = false; }
+  row.hidden = !ok; note.hidden = !ok;
+}
+
+async function phShareAll(){
+  try {
+    const files = PH.items.map(it => new File([it.blob], it.outName, { type: "image/jpeg" }));
+    if (!(navigator.canShare && navigator.canShare({ files }))){
+      setStatus($("phSummary"), "呢部機唔支援一次過分享，請用下面「逐張下載」。", "warn");
+      return;
+    }
+    await navigator.share({ files, title: "壓細咗嘅相" });
+  } catch (e){
+    if (e && e.name === "AbortError") return;      // 用家自己取消，唔算錯
+    setStatus($("phSummary"), "分享唔到：" + (e.message || e) + "。可以改用下面「逐張下載」。", "warn");
+  }
+}
+
+/* 逐張下載，唔用 zip。
+   中間隔開少少，唔係瀏覽器會當你連環彈檔案而攔住。 */
+async function phSaveAll(){
+  const btn = $("phSaveAll");
+  btn.disabled = true;
+  for (let i = 0; i < PH.items.length; i++){
+    const it = PH.items[i];
+    btn.textContent = `⬇️ 下載緊 ${i + 1}/${PH.items.length}…`;
+    downloadBlob(it.blob, it.outName);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  btn.textContent = "⬇️ 逐張下載（唔用 zip）";
+  btn.disabled = false;
+}
+
+function phLoadFiles(files){
+  const imgs = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(f.name));
+  if (!imgs.length){ setStatus($("phStatus"), "❌ 揀唔到圖片檔。", "err"); return; }
+  PH.files = imgs;
+  const heic = imgs.filter(f => /\.(heic|heif)$/i.test(f.name));
+  const total = imgs.reduce((a, f) => a + f.size, 0);
+  $("phOptBox").style.display = "";
+  $("phResultBox").style.display = "none";
+  setStatus($("phStatus"),
+    `✅ 揀咗 ${imgs.length} 張，總共 ${phFmtSize(total)}。` +
+    (heic.length ? `　⚠️ 其中 ${heic.length} 張係 iPhone 嘅 HEIC 格式，部分瀏覽器（例如電腦版 Chrome）開唔到，開唔到就會自動跳過。想穩陣嘅話，喺 iPhone 設定 → 相機 → 格式，揀「最相容」。` : ""),
+    heic.length ? "warn" : "ok");
+}
+
+/* ---------- 接線 ---------- */
+function phWire(){
+  const drop = $("phDrop"), input = $("phFile");
+  if (!drop || !input) return;
+  wireDropzone(drop, input, phLoadFiles);
+
+  const seg = $("phPresetSeg");
+  const applyPreset = v => {
+    PH.preset = v;
+    $("phCustomRow").hidden = (v !== "custom");
+    $("phPresetNote").textContent = (PH_PRESETS[v] || PH_PRESETS.wa).label;
+  };
+  seg.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    seg.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    applyPreset(b.dataset.view);
+  });
+  applyPreset("wa");
+
+  $("phGo").addEventListener("click", phRun);
+  $("phSaveAll").addEventListener("click", phSaveAll);
+  $("phShare").addEventListener("click", phShareAll);
+  $("phGrid").addEventListener("click", e => {
+    const b = e.target.closest("[data-ph-dl]");
+    if (!b) return;
+    const it = PH.items[+b.dataset.phDl];
+    if (it) downloadBlob(it.blob, it.outName);
+  });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", phWire);
+else phWire();
 
 </script>
 
