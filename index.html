@@ -5703,7 +5703,7 @@ function phLoadFiles(files){
 function phWire(){
   const drop = $("phDrop"), input = $("phFile");
   if (!drop || !input) return;
-  wireDropzone(drop, input, phLoadFiles);
+  wireDropzoneAny(drop, input, phLoadFiles);   // 相片：唔可以用只收 PDF 嗰個
 
   const seg = $("phPresetSeg");
   const applyPreset = v => {
@@ -5935,7 +5935,7 @@ async function mgShareOut(){
 function mgWire(){
   const drop = $("mgDrop"), input = $("mgFile");
   if (!drop || !input) return;
-  wireDropzone(drop, input, mgLoadFiles);
+  wireDropzoneAny(drop, input, mgLoadFiles);   // 圖片合併：同上
 
   const seg = (id, fn) => {
     const box = $(id);
@@ -6141,7 +6141,7 @@ async function ctSaveAll(){
 
 function ctWire(){
   if (!$("ctDrop")) return;
-  wireDropzone($("ctDrop"), $("ctFile"), ctLoadFiles);
+  wireDropzoneAny($("ctDrop"), $("ctFile"), ctLoadFiles);   // 圖片切割：同上
 
   // 合併 / 切割 兩個模式切換
   wireSeg($("mgModeSeg"), v => {
