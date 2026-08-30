@@ -986,8 +986,18 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <!-- ============ 12. 相片瘦身 ============ -->
 <section id="panel-photo" class="panel">
   <div class="box">
-    <h2>相片瘦身</h2>
-    <p class="desc">將手機影嘅大相壓細,變成 WhatsApp 嗰種細細張嘅 JPG。全部喺你部機做,啲相唔會離開你部電腦或者手機。</p>
+    <h2>相片處理</h2>
+    <p class="desc">一批相入嚟，壓細檔案或者統一尺寸。全部喺你部機做，啲相唔會離開你部電腦或者手機。</p>
+    <div class="seg" id="phModeSeg">
+      <button class="active" data-view="slim">🪶 瘦身（減檔案大細）</button>
+      <button data-view="size">📐 統一尺寸（改像素）</button>
+    </div>
+  </div>
+
+  <div class="subview active" id="phSlimView">
+  <div class="box">
+    <h2>瘦身</h2>
+    <p class="desc">將手機影嘅大相壓細，變成 WhatsApp 嗰種細細張嘅 JPG。</p>
     <div class="dropzone" id="phDrop" tabindex="0"><strong>拖放相片到呢度</strong><br>或者㩒一下揀相（可以一次過揀好多張）</div>
     <input type="file" id="phFile" accept="image/*" multiple>
     <div class="status" id="phStatus"></div>
@@ -1042,6 +1052,70 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 
     <div class="img-grid" id="phGrid"></div>
   </div>
+  </div><!-- /phSlimView -->
+
+  <div class="subview" id="phSizeView">
+  <div class="box">
+    <h2>統一尺寸</h2>
+    <p class="desc">將一批相統一到同一個闊度（或者高度）。其餘一邊會按原本比例自動計，唔會變形。</p>
+    <div class="dropzone" id="uzDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀相（可以一次過揀好多張）</div>
+    <input type="file" id="uzFile" accept="image/*" multiple>
+    <div class="status" id="uzStatus"></div>
+  </div>
+
+  <div class="box" id="uzOptBox" style="display:none">
+    <h2>統一邊一邊？</h2>
+    <div class="seg" id="uzDimSeg">
+      <button class="active" data-view="w">↔️ 闊度</button>
+      <button data-view="h">↕️ 高度</button>
+      <button data-view="long">📏 最長嗰邊</button>
+    </div>
+    <div class="note">
+      揀「最長嗰邊」最啱一批相入面**又有打橫又有打直**嘅情況——
+      每張都會以自己最長嗰邊做準，唔會將直相夾硬拉到同橫相一樣闊。
+    </div>
+
+    <div class="status" id="uzScan"></div>
+
+    <label class="field-label">揀個目標尺寸</label>
+    <div class="seg" id="uzPickSeg">
+      <button data-view="min">用最短</button>
+      <button data-view="med">用中位數</button>
+      <button data-view="max">用最長</button>
+      <button data-view="custom">自訂</button>
+    </div>
+    <div class="note" id="uzAdvice"></div>
+
+    <div class="export-row" id="uzCustomRow" hidden>
+      <label>目標像素
+        <input type="number" id="uzTarget" min="16" max="12000" step="10" value="1600">
+      </label>
+    </div>
+
+    <label class="field-label">輸出格式</label>
+    <div class="seg" id="uzFmtSeg">
+      <button class="active" data-view="jpg">JPG（細檔）</button>
+      <button data-view="png">PNG（無損）</button>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="uzGo">📐 開始統一</button>
+    </div>
+    <div class="status" id="uzWorkStatus"></div>
+  </div>
+
+  <div class="box" id="uzResultBox" style="display:none">
+    <h2>做好喇</h2>
+    <div class="status ok" id="uzSummary"></div>
+    <div class="export-row">
+      <button class="btn big" id="uzSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+      <button class="btn" id="uzShare" hidden>📤 分享／存去相簿</button>
+    </div>
+    <div class="note">檔名會自動加時間戳，同其他功能一樣。逐張下載嗰陣瀏覽器可能問你「要唔要允許下載多個檔案」，㩒「允許」就得。</div>
+    <div class="img-grid" id="uzGrid"></div>
+  </div>
+  </div><!-- /phSizeView -->
+
 </section>
 
 <!-- ============ 11. 睇書模式 ============ -->
@@ -6184,6 +6258,270 @@ function ctWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ctWire);
 else ctWire();
+
+
+/* =====================================================
+   12b) 統一尺寸 —— 一批相統一到同一個闊度／高度／最長邊
+   重點：先量度成批相，再建議應該「一齊縮細」定「一齊拉大」。
+   同「瘦身」共用一個分頁，用上面個掣切換。
+===================================================== */
+const UZ = {
+  files: [], dims: [],       // dims: {file, w, h}
+  dim: "w",                  // w | h | long
+  pick: null,                // min | med | max | custom
+  target: 0, fmt: "jpg",
+  items: []
+};
+
+/* 攞出「用嚟比較嗰個邊」嘅長度 */
+function uzValueOf(d, dim){
+  if (dim === "w") return d.w;
+  if (dim === "h") return d.h;
+  return Math.max(d.w, d.h);          // long = 每張自己最長嗰邊
+}
+
+function uzStats(dims, dim){
+  const v = dims.map(d => uzValueOf(d, dim)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const med = v.length % 2 ? v[(v.length - 1) / 2]
+                           : Math.round((v[v.length / 2 - 1] + v[v.length / 2]) / 2);
+  return { min: v[0], max: v[v.length - 1], med, n: v.length, all: v };
+}
+
+/* ★ 推薦邏輯
+   基本原則：**拉大係補唔返細節嘅**，縮細唔會蒙。所以預設偏向「用最短」。
+   但係如果得一兩張特別細（離群），為咗遷就佢而將成批相縮到咁細唔抵，
+   嗰陣就建議用中位數，並且講明有幾多張要拉大。 */
+function uzRecommend(st){
+  if (!st) return null;
+  const { min, max, med, all } = st;
+  const spread = max / min;
+  const upFromMin = 0;                                   // 用最短：冇一張要拉大
+  const upFromMed = all.filter(x => x < med).length;      // 用中位數：呢啲要拉大
+  const upFromMax = all.filter(x => x < max).length;      // 用最長：呢啲要拉大
+
+  // 「離群細相」＝明顯細過中位數嘅
+  const outliers = all.filter(x => x < med * 0.6).length;
+
+  let pick, why;
+  if (spread <= 1.05){
+    pick = "min";
+    why = `啲相尺寸已經好接近（${min}–${max}px），揀邊個都差唔多。`
+        + `建議用最短 ${min}px，咁一張都唔使拉大。`;
+  } else if (outliers > 0 && outliers <= Math.max(1, Math.floor(st.n * 0.25))){
+    pick = "med";
+    why = `有 ${outliers} 張明顯細過其他（最細先 ${min}px，中位數 ${med}px）。`
+        + `為咗遷就佢哋而將成批相縮到 ${min}px 好嘥。`
+        + `建議用中位數 ${med}px：${upFromMed} 張要拉大，其餘縮細或者唔變。`;
+  } else {
+    pick = "min";
+    const shrink = Math.round((1 - min / max) * 100);
+    why = `建議用最短 ${min}px —— 一張都唔使拉大，畫質唔會蒙。`
+        + `代價係最大嗰張會縮細約 ${shrink}%。`
+        + `如果你係要印或者要睇清楚細節，先考慮用最長 ${max}px`
+        + `（但會有 ${upFromMax} 張要拉大，最多拉大 ${Math.round((max / min - 1) * 100)}%，會蒙少少）。`;
+  }
+  return { pick, why, upFromMin, upFromMed, upFromMax };
+}
+
+function uzTargetFor(pick, st){
+  if (!st) return 0;
+  if (pick === "min") return st.min;
+  if (pick === "med") return st.med;
+  if (pick === "max") return st.max;
+  const v = parseInt($("uzTarget").value, 10);
+  return v > 0 ? v : st.med;
+}
+
+function uzRefresh(){
+  const st = uzStats(UZ.dims, UZ.dim);
+  if (!st){ $("uzScan").textContent = ""; return; }
+  const label = UZ.dim === "w" ? "闊度" : UZ.dim === "h" ? "高度" : "最長邊";
+  setStatus($("uzScan"),
+    `📊 ${st.n} 張相嘅${label}：最短 ${st.min}px、中位數 ${st.med}px、最長 ${st.max}px`, "");
+  const rec = uzRecommend(st);
+  // 喺掣上面標返實際數值
+  const setLbl = (v, txt) => {
+    const b = $("uzPickSeg").querySelector(`button[data-view="${v}"]`);
+    if (b) b.textContent = txt;
+  };
+  setLbl("min", `用最短 ${st.min}px`);
+  setLbl("med", `用中位數 ${st.med}px`);
+  setLbl("max", `用最長 ${st.max}px`);
+  if (!UZ.pick) UZ.pick = rec.pick;                       // 第一次自動採用建議
+  $("uzPickSeg").querySelectorAll("button").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === UZ.pick));
+  $("uzCustomRow").hidden = UZ.pick !== "custom";
+  UZ.target = uzTargetFor(UZ.pick, st);
+  const upNow = st.all.filter(x => x < UZ.target).length;
+  $("uzAdvice").innerHTML =
+    `<b>建議：${rec.pick === "min" ? "用最短" : rec.pick === "med" ? "用中位數" : "用最長"}</b>　${escapeHtml(rec.why)}` +
+    `<br><br>你而家揀咗 <b>${UZ.target}px</b>：` +
+    (upNow ? `${upNow} 張要拉大（拉大補唔返細節，會蒙少少）` : "冇一張要拉大 ✅") +
+    `，${st.all.filter(x => x > UZ.target).length} 張會縮細。`;
+}
+
+async function uzLoadFiles(files){
+  const imgs = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(f.name));
+  if (!imgs.length){ setStatus($("uzStatus"), "❌ 揀唔到圖片檔。", "err"); return; }
+  UZ.files = mgSortFiles(imgs);
+  UZ.dims = []; UZ.pick = null;
+  $("uzOptBox").style.display = "";
+  $("uzResultBox").style.display = "none";
+  setStatus($("uzStatus"), "⏳ 量度緊每張相嘅尺寸…", "busy");
+  const bad = [];
+  for (const f of UZ.files){
+    try {
+      const b = await phDecode(f);                        // 已處理 EXIF 打橫問題
+      UZ.dims.push({ file: f, w: b.width || b.naturalWidth, h: b.height || b.naturalHeight });
+      if (b.close) b.close();                             // 即刻放返記憶體，唔會攞住成批位圖
+    } catch (e){ bad.push(f.name); }
+  }
+  if (!UZ.dims.length){
+    setStatus($("uzStatus"), "❌ 一張都讀唔到。" + (bad.length ? "（" + bad.join("、") + "）" : ""), "err");
+    $("uzOptBox").style.display = "none";
+    return;
+  }
+  setStatus($("uzStatus"),
+    `✅ 讀咗 ${UZ.dims.length} 張。` + (bad.length ? `　開唔到：${bad.join("、")}` : ""),
+    bad.length ? "warn" : "ok");
+  uzRefresh();
+}
+
+async function uzRun(){
+  const st = $("uzWorkStatus");
+  if (!UZ.dims.length){ setStatus(st, "❌ 未揀相。", "err"); return; }
+  const stats = uzStats(UZ.dims, UZ.dim);
+  UZ.target = uzTargetFor(UZ.pick, stats);
+  if (!(UZ.target > 0)){ setStatus(st, "❌ 目標尺寸唔啱。", "err"); return; }
+  $("uzGo").disabled = true;
+  try {
+    UZ.items.forEach(it => { if (it.url) URL.revokeObjectURL(it.url); });
+    UZ.items = [];
+    const type = UZ.fmt === "png" ? "image/png" : "image/jpeg";
+    const ext  = UZ.fmt === "png" ? "png" : "jpg";
+    let up = 0, down = 0;
+
+    for (let i = 0; i < UZ.dims.length; i++){
+      const d = UZ.dims[i];
+      setStatus(st, `⏳ 處理緊第 ${i + 1}/${UZ.dims.length} 張…`, "busy");
+      const bmp = await phDecode(d.file);
+      const cur = uzValueOf(d, UZ.dim);
+      const k = UZ.target / cur;                          // 按比例，唔會變形
+      if (k > 1) up++; else if (k < 1) down++;
+      const w = Math.max(1, Math.round(d.w * k));
+      const h = Math.max(1, Math.round(d.h * k));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.fillStyle = "#FFFFFF";                          // PNG 透明位轉 JPG 會變黑
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise(r => c.toBlob(r, type, 0.92));
+      c.width = c.height = 0;
+      if (!blob) continue;
+      UZ.items.push({
+        outName: `${stripExt(d.file.name)}_${UZ.target}.${ext}`,
+        blob, url: URL.createObjectURL(blob), w, h,
+        from: `${d.w}×${d.h}`
+      });
+    }
+
+    if (!UZ.items.length){ setStatus(st, "❌ 一張都做唔到。", "err"); return; }
+    $("uzResultBox").style.display = "";
+    const label = UZ.dim === "w" ? "闊度" : UZ.dim === "h" ? "高度" : "最長邊";
+    setStatus($("uzSummary"),
+      `✅ ${UZ.items.length} 張已經統一到${label} ${UZ.target}px。` +
+      `　拉大咗 ${up} 張、縮細咗 ${down} 張、${UZ.items.length - up - down} 張啱啱好。`, "ok");
+    setStatus(st, "", "");
+    uzRenderGrid();
+    uzWireShare();
+    $("uzResultBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 出錯：" + (err.message || err), "err");
+  } finally {
+    $("uzGo").disabled = false;
+  }
+}
+
+function uzRenderGrid(){
+  const grid = $("uzGrid");
+  grid.innerHTML = "";
+  UZ.items.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.className = "img-item";
+    d.innerHTML =
+      `<img src="${it.url}" alt="">` +
+      `<div class="nm">${escapeHtml(it.outName)}</div>` +
+      `<div class="nm">${it.from} → <b style="color:var(--accent)">${it.w}×${it.h}</b></div>` +
+      `<div class="nm">${phFmtSize(it.blob.size)}</div>` +
+      `<button class="btn" data-uz-dl="${i}" style="width:100%;margin-top:6px;padding:6px">⬇️ 下載</button>`;
+    grid.appendChild(d);
+  });
+}
+
+function uzWireShare(){
+  let ok = false;
+  try {
+    const f = UZ.items.slice(0, 1).map(it => new File([it.blob], it.outName, { type: it.blob.type }));
+    ok = !!(navigator.canShare && navigator.share && f.length && navigator.canShare({ files: f }));
+  } catch (e){ ok = false; }
+  $("uzShare").hidden = !ok;
+}
+
+async function uzShareAll(){
+  try {
+    const files = UZ.items.map(it => new File([it.blob], it.outName, { type: it.blob.type }));
+    if (!(navigator.canShare && navigator.canShare({ files }))){
+      setStatus($("uzSummary"), "呢部機唔支援一次過分享，請用「逐張下載」。", "warn"); return;
+    }
+    await navigator.share({ files, title: "統一咗尺寸嘅相" });
+  } catch (e){
+    if (e && e.name === "AbortError") return;
+    setStatus($("uzSummary"), "分享唔到：" + (e.message || e), "warn");
+  }
+}
+
+async function uzSaveAll(){
+  const btn = $("uzSaveAll");
+  btn.disabled = true;
+  for (let i = 0; i < UZ.items.length; i++){
+    btn.textContent = `⬇️ 下載緊 ${i + 1}/${UZ.items.length}…`;
+    downloadBlob(UZ.items[i].blob, UZ.items[i].outName);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  btn.textContent = "⬇️ 逐張下載（唔用 zip）";
+  btn.disabled = false;
+}
+
+function uzWire(){
+  if (!$("uzDrop")) return;
+  wireDropzoneAny($("uzDrop"), $("uzFile"), uzLoadFiles);   // ⚠️ 唔可以用只收 PDF 嗰個
+
+  wireSeg($("phModeSeg"), v => {
+    $("phSlimView").classList.toggle("active", v === "slim");
+    $("phSizeView").classList.toggle("active", v === "size");
+  });
+  wireSeg($("uzDimSeg"),  v => { UZ.dim = v; UZ.pick = null; uzRefresh(); });
+  wireSeg($("uzPickSeg"), v => { UZ.pick = v; uzRefresh(); });
+  wireSeg($("uzFmtSeg"),  v => { UZ.fmt = v; });
+  $("uzTarget").addEventListener("input", () => { if (UZ.pick === "custom") uzRefresh(); });
+  $("uzGo").addEventListener("click", uzRun);
+  $("uzSaveAll").addEventListener("click", uzSaveAll);
+  $("uzShare").addEventListener("click", uzShareAll);
+  $("uzGrid").addEventListener("click", e => {
+    const b = e.target.closest("[data-uz-dl]");
+    if (!b) return;
+    const it = UZ.items[+b.dataset.uzDl];
+    if (it) downloadBlob(it.blob, it.outName);
+  });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", uzWire);
+else uzWire();
 
 </script>
 
