@@ -344,7 +344,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-any" role="tab">🌐 萬物轉 PDF</button>
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
       <button data-panel="panel-ocr" role="tab">🔍 掃描件認字</button>
-      <button data-panel="panel-photo" role="tab">📷 相片瘦身</button>
+      <button data-panel="panel-photo" role="tab">📷 瘦身／統一尺寸</button>
       <button data-panel="panel-merge" role="tab">🧩 合併／切割</button>
       <button data-panel="panel-reader" role="tab">📖 睇書模式</button>
       <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
@@ -618,8 +618,14 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="box">
     <h2>裁邊工具</h2>
     <div class="seg" id="trModeSeg">
-      <button class="active" data-view="pdf">📄 PDF 裁邊</button>
-      <button data-view="img">🖼️ 圖片裁邊（可以一批）</button>
+      <button class="active" data-view="pdf">📄 PDF 打數字裁邊</button>
+      <button data-view="pdfvis">👁️ PDF 逐版拉邊</button>
+      <button data-view="img">🖼️ 圖片裁邊</button>
+    </div>
+    <div class="note">
+      <b>打數字裁邊</b>＝全份（或者指定頁）用同一組邊距，快，啱版面一致嘅文件。<br>
+      <b>逐版拉邊</b>＝攤開每一版，逐版㩒入去睇住張圖拉虛線，每版可以唔同。<br>
+      <b>圖片裁邊</b>＝處理 JPG／PNG 呢啲圖片檔。
     </div>
   </div>
 
@@ -719,6 +725,28 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="status" id="ibExportStatus"></div>
   </div>
   </div><!-- /trImgView -->
+
+  <div class="subview" id="trVisView">
+  <div class="box">
+    <h2>PDF 逐版拉邊</h2>
+    <p class="desc">攤開每一版，㩒入去就可以睇住張圖拉虛線裁邊，每版可以裁到唔同。裁邊只係收細版面邊界，唔會郁到入面啲字同圖。</p>
+    <div class="dropzone" id="pvDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="pvFile" accept="application/pdf">
+    <div class="status" id="pvStatus"></div>
+    <div class="note" id="pvHint" hidden>㩒任何一版就可以拉邊。裁咗嘅版個角有 ✂️ 標記。</div>
+    <div class="img-grid" id="pvGrid"></div>
+  </div>
+
+  <div class="box" id="pvExportBox" style="display:none">
+    <h2>匯出</h2>
+    <div class="export-row">
+      <button class="btn big" id="pvGo">✂️ 裁邊並下載 PDF</button>
+    </div>
+    <div class="note">冇裁過嘅版會原封不動保留。檔名自動加時間戳。</div>
+    <div class="status" id="pvExportStatus"></div>
+  </div>
+  </div><!-- /trVisView -->
+
 
 </section>
 <!-- 圖片裁邊：放大編輯視窗 -->
@@ -1095,7 +1123,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-photo" class="panel">
   <div class="box">
     <h2>相片處理</h2>
-    <p class="desc">一批相入嚟，壓細檔案或者統一尺寸。全部喺你部機做，啲相唔會離開你部電腦或者手機。</p>
+    <p class="desc">壓細檔案，或者統一尺寸（圖片同 PDF 都做得）。全部喺你部機做，檔案唔會離開你部電腦或者手機。</p>
     <div class="seg" id="phModeSeg">
       <button class="active" data-view="slim">🪶 瘦身（減檔案大細）</button>
       <button data-view="size">📐 統一尺寸（改像素）</button>
@@ -6802,13 +6830,14 @@ function ibRenderGrid(){
 /* ---------- 放大編輯 ---------- */
 function ibOpen(i){
   if (i < 0 || i >= IB.items.length) return;
+  $("ibEditor").dataset.src = "ib";
   IB.idx = i;
   const it = IB.items[i];
   $("ibImg").src = it.url;
   $("ibEditor").classList.add("on");
   $("ibEditor").setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
-  $("ibPos").textContent = `第 ${i + 1}/${IB.items.length} 張 · ${it.file.name}`;
+  $("ibPos").textContent = `第 ${i + 1}/${IB.items.length} 張` + (it.file ? ` · ${it.file.name}` : "");
   // 等張相排好版先擺線，否則量到嘅尺寸係 0
   const place = () => ibPlaceLines();
   if ($("ibImg").complete) setTimeout(place, 30); else $("ibImg").onload = place;
@@ -6960,6 +6989,7 @@ function ibWire(){
 
   wireSeg($("trModeSeg"), v => {
     $("trPdfView").classList.toggle("active", v === "pdf");
+    $("trVisView").classList.toggle("active", v === "pdfvis");
     $("trImgView").classList.toggle("active", v === "img");
   });
   wireSeg($("ibFmtSeg"), v => { IB.fmt = v; });
@@ -6975,14 +7005,37 @@ function ibWire(){
   fr.addEventListener("pointerup", ibPointerUp);
   fr.addEventListener("pointercancel", ibPointerUp);
 
-  $("ibPrev").addEventListener("click", () => ibOpen(IB.idx - 1));
-  $("ibNext").addEventListener("click", () => ibOpen(IB.idx + 1));
-  $("ibDone").addEventListener("click", ibClose);
+  // 編輯器由「圖片裁邊」同「PDF 逐版拉邊」共用，
+  // 靠 dataset.src 分辨而家編緊邊一邊。
+  const isPv = () => $("ibEditor").dataset.src === "pv";
+  const go = d => isPv() ? pvOpen(PV.idx + d) : ibOpen(IB.idx + d);
+  $("ibPrev").addEventListener("click", () => go(-1));
+  $("ibNext").addEventListener("click", () => go(1));
+  $("ibDone").addEventListener("click", () => {
+    if (isPv()){
+      $("ibEditor").classList.remove("on");
+      $("ibEditor").setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      pvRenderGrid();
+    } else ibClose();
+  });
   $("ibReset").addEventListener("click", () => {
-    const it = IB.items[IB.idx];
-    if (it){ it.crop = ibZero(); ibPlaceLines(); }
+    const it = isPv() ? PV.pages[PV.idx] : IB.items[IB.idx];
+    if (!it) return;
+    it.crop = ibZero();
+    if (isPv()) IB.items[0].crop = it.crop;
+    ibPlaceLines();
   });
   $("ibApplyAll").addEventListener("click", () => {
+    if (isPv()){
+      const p = PV.pages[PV.idx];
+      if (!p) return;
+      if (!confirm(`將呢版嘅裁邊比例套用去全部 ${PV.pages.length} 版？\n（用比例計，所以尺寸唔同嘅版都啱用）`)) return;
+      PV.pages.forEach(x => { x.crop = { ...p.crop }; });
+      IB.items[0].crop = PV.pages[PV.idx].crop;
+      ibPlaceLines();
+      return;
+    }
     const it = IB.items[IB.idx];
     if (!it) return;
     if (!confirm(`將呢張嘅裁邊比例套用去全部 ${IB.items.length} 張？\n（用比例計，所以唔同尺寸嘅相都啱用）`)) return;
@@ -6999,9 +7052,9 @@ function ibWire(){
   });
   document.addEventListener("keydown", e => {
     if (!$("ibEditor") || !$("ibEditor").classList.contains("on")) return;
-    if (e.key === "Escape") ibClose();
-    if (e.key === "ArrowRight") ibOpen(IB.idx + 1);
-    if (e.key === "ArrowLeft") ibOpen(IB.idx - 1);
+    if (e.key === "Escape") $("ibDone").click();
+    if (e.key === "ArrowRight") $("ibNext").click();
+    if (e.key === "ArrowLeft") $("ibPrev").click();
   });
 
   // 支唔支援分享，載入之後先知
@@ -7198,6 +7251,170 @@ function updWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", updWire);
 else updWire();
+
+
+/* =====================================================
+   8c) PDF 逐版拉邊
+   攤開每一版做縮圖，㩒入去就借用「圖片裁邊」嗰個編輯器拉虛線。
+   ⚠️ 刻意共用 ibEditor：拖拉、夾邊界、貼螢幕嗰套邏輯已經驗證過，
+      唔好另寫一套，否則兩邊行為會慢慢分叉。
+===================================================== */
+const PV = {
+  buf: null, name: "", doc: null,
+  pages: [],        // {no, w, h, rot, visW, visH, url, crop:{t,b,l,r}}
+  idx: -1
+};
+
+const pvZero = () => ({ t: 0, b: 0, l: 0, r: 0 });
+const pvCropped = c => (c.t + c.b + c.l + c.r) > 0.0005;
+
+async function pvLoad(files){
+  const f = files[0];
+  if (!f) return;
+  const st = $("pvStatus");
+  try {
+    setStatus(st, "⏳ 讀緊…", "busy");
+    const buf = await prepPdfBuffer(await f.arrayBuffer(), f.name, st);
+    PV.buf = buf; PV.name = f.name; PV.idx = -1;
+    PV.pages.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
+    PV.pages = [];
+    if (PV.doc){ try { PV.doc.destroy(); } catch(e){} }
+    PV.doc = await pdfjsLib.getDocument({ data: buf.slice(0), ...PDFJS_SAFE }).promise;
+    const n = PV.doc.numPages;
+    for (let i = 1; i <= n; i++){
+      setStatus(st, `⏳ 畫緊第 ${i}/${n} 版…`, "busy");
+      const page = await PV.doc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      // 縮圖畫細啲就夠，拉邊靠比例，唔靠解像度
+      const k = Math.min(1400 / Math.max(vp.width, vp.height), 2);
+      const v2 = page.getViewport({ scale: k });
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(v2.width));
+      c.height = Math.max(1, Math.round(v2.height));
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: v2 }).promise;
+      const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+      c.width = c.height = 0;
+      PV.pages.push({
+        no: i, w: c.width || v2.width, h: v2.height,
+        visW: Math.round(vp.width), visH: Math.round(vp.height),
+        url: URL.createObjectURL(blob), crop: pvZero()
+      });
+    }
+    $("pvHint").hidden = false;
+    $("pvExportBox").style.display = "";
+    setStatus(st, `✅ ${n} 版，㩒任何一版就可以拉邊。`, "ok");
+    pvRenderGrid();
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err");
+  }
+}
+
+function pvOutSize(p){
+  const c = p.crop;
+  return {
+    w: Math.max(1, Math.round(p.visW * (1 - c.l - c.r))),
+    h: Math.max(1, Math.round(p.visH * (1 - c.t - c.b)))
+  };
+}
+
+function pvRenderGrid(){
+  const grid = $("pvGrid");
+  grid.innerHTML = "";
+  PV.pages.forEach((p, i) => {
+    const o = pvOutSize(p);
+    const d = document.createElement("div");
+    d.className = "img-item";
+    d.style.cursor = "pointer";
+    d.dataset.pvOpen = i;
+    d.innerHTML =
+      `<img src="${p.url}" alt="">` +
+      (pvCropped(p.crop) ? `<span class="cut-badge">✂️</span>` : "") +
+      `<div class="nm">第 ${p.no} 版</div>` +
+      `<div class="nm">${p.visW}×${p.visH}pt` +
+      (pvCropped(p.crop) ? ` → <b style="color:var(--accent)">${o.w}×${o.h}</b>` : "") + `</div>`;
+    grid.appendChild(d);
+  });
+}
+
+/* ── 借用 ibEditor ──
+   將 PDF 版塞入同一個編輯器。IB 同 PV 各自有自己嘅 items，
+   靠 ibEditor 個 dataset.src 分辨而家編緊邊一邊。 */
+function pvOpen(i){
+  if (i < 0 || i >= PV.pages.length) return;
+  PV.idx = i;
+  const p = PV.pages[i];
+  $("ibEditor").dataset.src = "pv";
+  IB.idx = 0;
+  IB.items = [{ file: null, url: p.url, w: p.visW, h: p.visH, crop: p.crop }];
+  $("ibImg").src = p.url;
+  $("ibEditor").classList.add("on");
+  $("ibEditor").setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  $("ibPos").textContent = `第 ${p.no}/${PV.pages.length} 版 · ${p.visW}×${p.visH}pt`;
+  const place = () => ibPlaceLines();
+  if ($("ibImg").complete) setTimeout(place, 30); else $("ibImg").onload = place;
+}
+
+async function pvRun(){
+  const st = $("pvExportStatus");
+  if (!PV.pages.length){ setStatus(st, "❌ 未揀 PDF。", "err"); return; }
+  $("pvGo").disabled = true;
+  try {
+    setStatus(st, "⏳ 處理緊…", "busy");
+    const doc = await loadPdfLib(PV.buf.slice(0));
+    const pages = doc.getPages();
+    let cut = 0;
+    pages.forEach((page, i) => {
+      const rec = PV.pages[i];
+      if (!rec || !pvCropped(rec.crop)) return;
+      cut++;
+      const c = rec.crop;
+      const box = page.getMediaBox();          // 由 mediabox 出發，唔係假設由 0,0 開始
+      const rot = page.getRotation().angle;
+      // 畫面上嘅上下左右，喺 PDF 座標入面會隨住 /Rotate 轉位
+      let L = c.l, R = c.r, T = c.t, B = c.b;
+      // ⚠️ 呢個對照表係由實測像素推出嚟，唔係靠估。
+      // 做法：喺 mediabox 四邊畫四條唔同色嘅邊條，逐個 rot 渲染出嚟，
+      // 睇下畫面嘅上下左右分別對應 mediabox 邊一邊（見交接檔）。
+      // 我第一次寫嗰陣 90 同 270 啱啱好對調咗，渲染出嚟即刻見到。
+      if (rot === 90)       { [L, R, T, B] = [c.t, c.b, c.r, c.l]; }
+      else if (rot === 180) { [L, R, T, B] = [c.r, c.l, c.b, c.t]; }
+      else if (rot === 270) { [L, R, T, B] = [c.b, c.t, c.l, c.r]; }
+      const x = box.x + box.width * L;
+      const y = box.y + box.height * B;        // PDF 嘅 y 由下向上
+      const w = box.width  * (1 - L - R);
+      const h = box.height * (1 - T - B);
+      if (w > 1 && h > 1){
+        page.setMediaBox(x, y, w, h);
+        page.setCropBox(x, y, w, h);
+      }
+    });
+    const bytes = await doc.save();
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }),
+                 stripExt(PV.name) + "_逐版裁邊.pdf");
+    setStatus(st, `✅ done，${cut} 版有裁過，其餘原封不動。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 出錯：" + (err.message || err), "err");
+  } finally {
+    $("pvGo").disabled = false;
+  }
+}
+
+function pvWire(){
+  if (!$("pvDrop")) return;
+  wireDropzone($("pvDrop"), $("pvFile"), pvLoad);      // 呢個真係只收 PDF
+  $("pvGrid").addEventListener("click", e => {
+    const d = e.target.closest("[data-pv-open]");
+    if (d) pvOpen(+d.dataset.pvOpen);
+  });
+  $("pvGo").addEventListener("click", pvRun);
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", pvWire);
+else pvWire();
 
 </script>
 
