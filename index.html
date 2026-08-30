@@ -212,6 +212,36 @@ input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;fo
    實測中招：wsToolbar / teToolbar（.toolbar 有 display:flex）、
              s2tPunctRow（inline display:flex）、phShareRow（.export-row 有 display:flex）。
    加呢一條就一次過解決，連將來新加嘅都覆蓋。 */
+
+/* ===== 圖片裁邊：放大編輯視窗 ===== */
+#ibEditor{position:fixed;inset:0;z-index:9998;display:none;flex-direction:column;background:#121815;color:#E8EFEA}
+#ibEditor.on{display:flex}
+#ibEditBar{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:8px 12px;
+  background:rgba(18,24,21,.96);border-bottom:1px solid #2A342F;font-size:.85rem;flex-wrap:wrap}
+#ibEditBar button{appearance:none;border:1px solid #35423C;background:#1C2521;color:#E8EFEA;
+  padding:6px 12px;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer}
+#ibEditBar button:hover{background:#26312B}
+#ibEditBar button:focus-visible{outline:2px solid #4FB89A;outline-offset:1px}
+#ibEditBar .sp{flex:1 1 auto}
+#ibEditBar .lbl{color:#9DB0A6}
+#ibStage{flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}
+#ibFrame{position:relative;line-height:0;touch-action:none;max-width:100%;max-height:100%}
+#ibFrame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;user-select:none;-webkit-user-drag:none}
+.ib-shade{position:absolute;background:rgba(10,14,12,.62);pointer-events:none}
+.ib-line{position:absolute;background:transparent}
+.ib-line::before{content:"";position:absolute;inset:0;
+  background-image:repeating-linear-gradient(90deg,#4FB89A 0 8px,transparent 8px 16px);}
+.ib-line[data-h="left"]::before,.ib-line[data-h="right"]::before{
+  background-image:repeating-linear-gradient(0deg,#4FB89A 0 8px,transparent 8px 16px);}
+.ib-line[data-h="top"],.ib-line[data-h="bottom"]{left:0;right:0;height:22px;margin-top:-11px;cursor:ns-resize}
+.ib-line[data-h="left"],.ib-line[data-h="right"]{top:0;bottom:0;width:22px;margin-left:-11px;cursor:ew-resize}
+.ib-line[data-h="top"]::before,.ib-line[data-h="bottom"]::before{top:10px;bottom:10px}
+.ib-line[data-h="left"]::before,.ib-line[data-h="right"]::before{left:10px;right:10px}
+.ib-line.drag::before{background-image:none;background:#4FB89A}
+#ibEditInfo{flex:0 0 auto;text-align:center;padding:8px;font-size:.82rem;color:#9DB0A6}
+.img-item .cut-badge{position:absolute;top:4px;right:4px;background:var(--accent);color:#fff;
+  border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:700}
+
 [hidden]{display:none !important}
 .subview{display:none}
 .subview.active{display:block}
@@ -581,7 +611,16 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <!-- ============ 8. 裁邊工具（Trim Margins） ============ -->
 <section id="panel-trim" class="panel">
   <div class="box">
-    <h2>裁邊工具（Trim Margins）</h2>
+    <h2>裁邊工具</h2>
+    <div class="seg" id="trModeSeg">
+      <button class="active" data-view="pdf">📄 PDF 裁邊</button>
+      <button data-view="img">🖼️ 圖片裁邊（可以一批）</button>
+    </div>
+  </div>
+
+  <div class="subview active" id="trPdfView">
+  <div class="box">
+    <h2>PDF 裁邊（Trim Margins）</h2>
     <p class="desc">將 PDF 嘅上、下、左、右邊界切走，令版面縮細。可以揀套用至<b>所有頁面</b>，或者只套用至<b>指定頁面</b>。裁切只會收細頁面邊界，唔會影響入面嘅文字圖片內容本身。</p>
     <div class="dropzone" id="trDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="trFileInput" accept="application/pdf">
@@ -641,7 +680,70 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="status" id="trStatus"></div>
   </div>
+  </div><!-- /trPdfView -->
+
+  <div class="subview" id="trImgView">
+  <div class="box">
+    <h2>圖片裁邊</h2>
+    <p class="desc">一次過放好多張圖入嚟，逐張㩒入去拉虛線裁邊，最後一次過匯出。全部喺你部機做。</p>
+    <div class="dropzone" id="ibDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀相（可以一次過揀好多張）</div>
+    <input type="file" id="ibFile" accept="image/*" multiple>
+    <div class="status" id="ibStatus"></div>
+    <div class="note" id="ibHint" hidden>
+      㩒下面任何一張相，就會放大出嚟俾你拉邊。裁咗嘅相個角會有個 ✂️ 標記。
+    </div>
+    <div class="img-grid" id="ibGrid"></div>
+  </div>
+
+  <div class="box" id="ibExportBox" style="display:none">
+    <h2>匯出</h2>
+    <label class="field-label">格式</label>
+    <div class="seg" id="ibFmtSeg">
+      <button class="active" data-view="jpg">JPG（細檔）</button>
+      <button data-view="png">PNG（無損）</button>
+    </div>
+    <div class="export-row">
+      <button class="btn big" id="ibZip">🗜️ 打包做 ZIP（多張建議用呢個）</button>
+      <button class="btn" id="ibSaveAll">⬇️ 逐張下載</button>
+      <button class="btn" id="ibShare" hidden>📤 分享／存去相簿</button>
+    </div>
+    <div class="note">
+      冇裁過嘅相都會照樣匯出（原大細），所以一次過攞晒就得。
+      檔名自動加時間戳。
+    </div>
+    <div class="status" id="ibExportStatus"></div>
+  </div>
+  </div><!-- /trImgView -->
+
 </section>
+<!-- 圖片裁邊：放大編輯視窗 -->
+<div id="ibEditor" aria-hidden="true">
+  <div id="ibEditBar">
+    <button id="ibPrev">◀ 上一張</button>
+    <button id="ibNext">下一張 ▶</button>
+    <span class="lbl" id="ibPos">—</span>
+    <span class="sp"></span>
+    <button id="ibReset">↺ 還原呢張</button>
+    <button id="ibApplyAll">📋 套用去全部</button>
+    <button id="ibDone">✓ 完成</button>
+  </div>
+  <div id="ibStage">
+    <div id="ibFrame">
+      <img id="ibImg" alt="">
+      <div class="ib-shade" data-e="top"></div>
+      <div class="ib-shade" data-e="bottom"></div>
+      <div class="ib-shade" data-e="left"></div>
+      <div class="ib-shade" data-e="right"></div>
+      <div class="ib-line" data-h="top"></div>
+      <div class="ib-line" data-h="bottom"></div>
+      <div class="ib-line" data-h="left"></div>
+      <div class="ib-line" data-h="right"></div>
+    </div>
+  </div>
+  <div id="ibEditInfo">拉四條虛線裁邊　·　裁完㩒「完成」</div>
+</div>
+
+
 
 <!-- ============ 9. 掃描件認字（OCR） ============ -->
 <section id="panel-ocr" class="panel">
@@ -969,6 +1071,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="status ok" id="ctSummary"></div>
     <div class="export-row">
       <button class="btn big" id="ctSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+      <button class="btn" id="ctZip">🗜️ 打包做 ZIP</button>
       <button class="btn" id="ctShare" hidden>📤 分享／存去相簿</button>
     </div>
     <div class="note">
@@ -1044,6 +1147,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 
     <div class="export-row">
       <button class="btn" id="phSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+      <button class="btn" id="phZip">🗜️ 打包做 ZIP</button>
     </div>
     <div class="note">
       會一張一張咁下載。<b>瀏覽器可能問你「要唔要允許下載多個檔案」,㩒「允許」就得。</b><br>
@@ -1109,6 +1213,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="status ok" id="uzSummary"></div>
     <div class="export-row">
       <button class="btn big" id="uzSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+      <button class="btn" id="uzZip">🗜️ 打包做 ZIP</button>
       <button class="btn" id="uzShare" hidden>📤 分享／存去相簿</button>
     </div>
     <div class="note">檔名會自動加時間戳，同其他功能一樣。逐張下載嗰陣瀏覽器可能問你「要唔要允許下載多個檔案」，㩒「允許」就得。</div>
@@ -5796,6 +5901,7 @@ function phWire(){
 
   $("phGo").addEventListener("click", phRun);
   $("phSaveAll").addEventListener("click", phSaveAll);
+  $("phZip").addEventListener("click", e => imgZipDownload(PH.items, "壓細咗嘅相.zip", e.target));
   $("phShare").addEventListener("click", phShareAll);
   $("phGrid").addEventListener("click", e => {
     const b = e.target.closest("[data-ph-dl]");
@@ -6248,6 +6354,7 @@ function ctWire(){
 
   $("ctGo").addEventListener("click", ctRun);
   $("ctSaveAll").addEventListener("click", ctSaveAll);
+  $("ctZip").addEventListener("click", e => imgZipDownload(IMG_CT.items, "切割結果.zip", e.target));
   $("ctShare").addEventListener("click", ctShareAll);
   $("ctGrid").addEventListener("click", e => {
     const b = e.target.closest("[data-ct-dl]");
@@ -6259,6 +6366,28 @@ function ctWire(){
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ctWire);
 else ctWire();
 
+
+/* 一次過打包做 ZIP。
+   ⚠️ 保留返「逐張下載」：手機好多時開唔到 zip，但幾十上百張逐張落又唔切實際，
+   所以兩樣都要俾用家揀，唔可以二揀一。 */
+async function imgZipDownload(items, zipName, btn){
+  if (!items || !items.length) return;
+  const old = btn ? btn.textContent : "";
+  if (btn){ btn.disabled = true; btn.textContent = "⏳ 打包緊…"; }
+  try {
+    const zip = new JSZip();
+    for (const it of items) zip.file(it.outName, it.blob);
+    const blob = await zip.generateAsync({ type: "blob" }, meta => {
+      if (btn) btn.textContent = `⏳ 打包緊 ${Math.round(meta.percent)}%`;
+    });
+    downloadBlob(blob, zipName);
+  } catch (e){
+    console.error(e);
+    alert("打包失敗：" + (e.message || e));
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = old; }
+  }
+}
 
 /* =====================================================
    12b) 統一尺寸 —— 一批相統一到同一個闊度／高度／最長邊
@@ -6512,6 +6641,7 @@ function uzWire(){
   $("uzTarget").addEventListener("input", () => { if (UZ.pick === "custom") uzRefresh(); });
   $("uzGo").addEventListener("click", uzRun);
   $("uzSaveAll").addEventListener("click", uzSaveAll);
+  $("uzZip").addEventListener("click", e => imgZipDownload(UZ.items, "統一尺寸.zip", e.target));
   $("uzShare").addEventListener("click", uzShareAll);
   $("uzGrid").addEventListener("click", e => {
     const b = e.target.closest("[data-uz-dl]");
@@ -6522,6 +6652,273 @@ function uzWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", uzWire);
 else uzWire();
+
+
+/* =====================================================
+   8b) 圖片裁邊 —— 一批圖，逐張拉虛線裁邊，最後一次過匯出
+   同「PDF 裁邊」共用一個分頁，用上面個掣切換。
+===================================================== */
+const IB = {
+  items: [],      // {file, url, w, h, crop:{t,b,l,r}}  crop 用 0–1 比例存
+  idx: -1,
+  fmt: "jpg",
+  drag: null      // {edge, startX, startY, box}
+};
+
+const ibZero = () => ({ t: 0, b: 0, l: 0, r: 0 });
+const ibIsCropped = c => (c.t + c.b + c.l + c.r) > 0.0005;
+
+async function ibLoadFiles(files){
+  const imgs = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(f.name));
+  if (!imgs.length){ setStatus($("ibStatus"), "❌ 揀唔到圖片檔。", "err"); return; }
+  setStatus($("ibStatus"), "⏳ 讀緊…", "busy");
+  const sorted = mgSortFiles(imgs);
+  const bad = [];
+  for (const f of sorted){
+    try {
+      const b = await phDecode(f);                 // 已處理 EXIF 打橫問題
+      IB.items.push({
+        file: f, url: URL.createObjectURL(f),
+        w: b.width || b.naturalWidth, h: b.height || b.naturalHeight,
+        crop: ibZero()
+      });
+      if (b.close) b.close();
+    } catch (e){ bad.push(f.name); }
+  }
+  if (!IB.items.length){
+    setStatus($("ibStatus"), "❌ 一張都讀唔到。" + (bad.length ? "（" + bad.join("、") + "）" : ""), "err");
+    return;
+  }
+  $("ibHint").hidden = false;
+  $("ibExportBox").style.display = "";
+  setStatus($("ibStatus"),
+    `✅ 一共 ${IB.items.length} 張。` + (bad.length ? `　開唔到：${bad.join("、")}` : ""),
+    bad.length ? "warn" : "ok");
+  ibRenderGrid();
+}
+
+function ibOutSize(it){
+  const c = it.crop;
+  return {
+    w: Math.max(1, Math.round(it.w * (1 - c.l - c.r))),
+    h: Math.max(1, Math.round(it.h * (1 - c.t - c.b)))
+  };
+}
+
+function ibRenderGrid(){
+  const grid = $("ibGrid");
+  grid.innerHTML = "";
+  IB.items.forEach((it, i) => {
+    const o = ibOutSize(it);
+    const d = document.createElement("div");
+    d.className = "img-item";
+    d.style.cursor = "pointer";
+    d.dataset.ibOpen = i;
+    d.innerHTML =
+      `<img src="${it.url}" alt="">` +
+      (ibIsCropped(it.crop) ? `<span class="cut-badge">✂️</span>` : "") +
+      `<div class="nm">${escapeHtml(it.file.name)}</div>` +
+      `<div class="nm">${it.w}×${it.h}` +
+      (ibIsCropped(it.crop) ? ` → <b style="color:var(--accent)">${o.w}×${o.h}</b>` : "") + `</div>`;
+    grid.appendChild(d);
+  });
+}
+
+/* ---------- 放大編輯 ---------- */
+function ibOpen(i){
+  if (i < 0 || i >= IB.items.length) return;
+  IB.idx = i;
+  const it = IB.items[i];
+  $("ibImg").src = it.url;
+  $("ibEditor").classList.add("on");
+  $("ibEditor").setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  $("ibPos").textContent = `第 ${i + 1}/${IB.items.length} 張 · ${it.file.name}`;
+  // 等張相排好版先擺線，否則量到嘅尺寸係 0
+  const place = () => ibPlaceLines();
+  if ($("ibImg").complete) setTimeout(place, 30); else $("ibImg").onload = place;
+}
+
+function ibClose(){
+  $("ibEditor").classList.remove("on");
+  $("ibEditor").setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  ibRenderGrid();
+}
+
+/* 將 crop 比例畫成畫面上嘅虛線同陰影 */
+function ibPlaceLines(){
+  const it = IB.items[IB.idx];
+  if (!it) return;
+  const img = $("ibImg");
+  const W = img.clientWidth, H = img.clientHeight;
+  if (!W || !H) return;
+  const c = it.crop;
+  const top = c.t * H, bottom = H - c.b * H, left = c.l * W, right = W - c.r * W;
+  const set = (sel, css) => { const e = $("ibFrame").querySelector(sel); if (e) Object.assign(e.style, css); };
+  set('.ib-line[data-h="top"]',    { top: top + "px" });
+  set('.ib-line[data-h="bottom"]', { top: bottom + "px" });
+  set('.ib-line[data-h="left"]',   { left: left + "px" });
+  set('.ib-line[data-h="right"]',  { left: right + "px" });
+  set('.ib-shade[data-e="top"]',    { left: "0px", top: "0px", width: W + "px", height: top + "px" });
+  set('.ib-shade[data-e="bottom"]', { left: "0px", top: bottom + "px", width: W + "px", height: (H - bottom) + "px" });
+  set('.ib-shade[data-e="left"]',   { left: "0px", top: top + "px", width: left + "px", height: (bottom - top) + "px" });
+  set('.ib-shade[data-e="right"]',  { left: right + "px", top: top + "px", width: (W - right) + "px", height: (bottom - top) + "px" });
+  const o = ibOutSize(it);
+  $("ibEditInfo").textContent =
+    `拉四條虛線裁邊　·　${it.w}×${it.h} → ${o.w}×${o.h}` +
+    (ibIsCropped(it.crop) ? `（裁走咗 ${Math.round((1 - (o.w * o.h) / (it.w * it.h)) * 100)}%）` : "（未裁）");
+}
+
+function ibPointerDown(e){
+  const line = e.target.closest(".ib-line");
+  if (!line) return;
+  e.preventDefault();
+  IB.drag = { edge: line.dataset.h, el: line };
+  line.classList.add("drag");
+  line.setPointerCapture && line.setPointerCapture(e.pointerId);
+}
+
+function ibPointerMove(e){
+  if (!IB.drag) return;
+  const it = IB.items[IB.idx];
+  const img = $("ibImg");
+  const r = img.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const x = (e.clientX - r.left) / r.width;      // 0–1
+  const y = (e.clientY - r.top) / r.height;
+  const c = it.crop;
+  const MIN = 0.02;                               // 至少留返 2% 闊／高，唔好裁到冇
+  if (IB.drag.edge === "top")    c.t = Math.max(0, Math.min(y, 1 - c.b - MIN));
+  if (IB.drag.edge === "bottom") c.b = Math.max(0, Math.min(1 - y, 1 - c.t - MIN));
+  if (IB.drag.edge === "left")   c.l = Math.max(0, Math.min(x, 1 - c.r - MIN));
+  if (IB.drag.edge === "right")  c.r = Math.max(0, Math.min(1 - x, 1 - c.l - MIN));
+  ibPlaceLines();
+}
+
+function ibPointerUp(){
+  if (!IB.drag) return;
+  IB.drag.el.classList.remove("drag");
+  IB.drag = null;
+}
+
+/* ---------- 匯出 ---------- */
+async function ibBuild(onProg){
+  const type = IB.fmt === "png" ? "image/png" : "image/jpeg";
+  const ext  = IB.fmt === "png" ? "png" : "jpg";
+  const out = [];
+  for (let i = 0; i < IB.items.length; i++){
+    const it = IB.items[i];
+    onProg && onProg(i + 1, IB.items.length);
+    const bmp = await phDecode(it.file);
+    const c = it.crop;
+    const sx = Math.round(it.w * c.l), sy = Math.round(it.h * c.t);
+    const sw = Math.max(1, Math.round(it.w * (1 - c.l - c.r)));
+    const sh = Math.max(1, Math.round(it.h * (1 - c.t - c.b)));
+    const cv = document.createElement("canvas");
+    cv.width = sw; cv.height = sh;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#FFFFFF";                    // PNG 透明位轉 JPG 會變黑
+    ctx.fillRect(0, 0, sw, sh);
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+    if (bmp.close) bmp.close();
+    const blob = await new Promise(r => cv.toBlob(r, type, 0.92));
+    cv.width = cv.height = 0;
+    if (blob) out.push({ outName: `${stripExt(it.file.name)}_裁.${ext}`, blob });
+  }
+  return out;
+}
+
+async function ibExport(mode, btn){
+  const st = $("ibExportStatus");
+  if (!IB.items.length) return;
+  const old = btn.textContent;
+  btn.disabled = true;
+  try {
+    const out = await ibBuild((a, b) => setStatus(st, `⏳ 處理緊 ${a}/${b}…`, "busy"));
+    if (!out.length){ setStatus(st, "❌ 冇嘢匯出到。", "err"); return; }
+    if (mode === "zip"){
+      await imgZipDownload(out, "裁邊圖片.zip", btn);
+    } else if (mode === "share"){
+      const files = out.map(o => new File([o.blob], o.outName, { type: o.blob.type }));
+      if (navigator.canShare && navigator.canShare({ files })) await navigator.share({ files, title: "裁邊圖片" });
+      else setStatus(st, "呢部機唔支援分享，請用 ZIP 或者逐張下載。", "warn");
+    } else {
+      for (let i = 0; i < out.length; i++){
+        btn.textContent = `⬇️ 下載緊 ${i + 1}/${out.length}…`;
+        downloadBlob(out[i].blob, out[i].outName);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+    const cut = IB.items.filter(x => ibIsCropped(x.crop)).length;
+    setStatus(st, `✅ 匯出咗 ${out.length} 張（其中 ${cut} 張有裁過）。`, "ok");
+  } catch (e){
+    if (e && e.name === "AbortError"){ setStatus(st, "", ""); return; }
+    console.error(e);
+    setStatus(st, "❌ 匯出失敗：" + (e.message || e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
+function ibWire(){
+  if (!$("ibDrop")) return;
+  wireDropzoneAny($("ibDrop"), $("ibFile"), ibLoadFiles);   // ⚠️ 唔可以用只收 PDF 嗰個
+
+  wireSeg($("trModeSeg"), v => {
+    $("trPdfView").classList.toggle("active", v === "pdf");
+    $("trImgView").classList.toggle("active", v === "img");
+  });
+  wireSeg($("ibFmtSeg"), v => { IB.fmt = v; });
+
+  $("ibGrid").addEventListener("click", e => {
+    const d = e.target.closest("[data-ib-open]");
+    if (d) ibOpen(+d.dataset.ibOpen);
+  });
+
+  const fr = $("ibFrame");
+  fr.addEventListener("pointerdown", ibPointerDown);
+  fr.addEventListener("pointermove", ibPointerMove);
+  fr.addEventListener("pointerup", ibPointerUp);
+  fr.addEventListener("pointercancel", ibPointerUp);
+
+  $("ibPrev").addEventListener("click", () => ibOpen(IB.idx - 1));
+  $("ibNext").addEventListener("click", () => ibOpen(IB.idx + 1));
+  $("ibDone").addEventListener("click", ibClose);
+  $("ibReset").addEventListener("click", () => {
+    const it = IB.items[IB.idx];
+    if (it){ it.crop = ibZero(); ibPlaceLines(); }
+  });
+  $("ibApplyAll").addEventListener("click", () => {
+    const it = IB.items[IB.idx];
+    if (!it) return;
+    if (!confirm(`將呢張嘅裁邊比例套用去全部 ${IB.items.length} 張？\n（用比例計，所以唔同尺寸嘅相都啱用）`)) return;
+    IB.items.forEach(x => { x.crop = { ...it.crop }; });
+    ibPlaceLines();
+  });
+
+  $("ibZip").addEventListener("click", e => ibExport("zip", e.target));
+  $("ibSaveAll").addEventListener("click", e => ibExport("each", e.target));
+  $("ibShare").addEventListener("click", e => ibExport("share", e.target));
+
+  window.addEventListener("resize", () => {
+    if ($("ibEditor").classList.contains("on")) ibPlaceLines();
+  });
+  document.addEventListener("keydown", e => {
+    if (!$("ibEditor") || !$("ibEditor").classList.contains("on")) return;
+    if (e.key === "Escape") ibClose();
+    if (e.key === "ArrowRight") ibOpen(IB.idx + 1);
+    if (e.key === "ArrowLeft") ibOpen(IB.idx - 1);
+  });
+
+  // 支唔支援分享，載入之後先知
+  try {
+    const f = [new File([new Blob(["x"])], "a.jpg", { type: "image/jpeg" })];
+    $("ibShare").hidden = !(navigator.canShare && navigator.share && navigator.canShare({ files: f }));
+  } catch (e){ $("ibShare").hidden = true; }
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ibWire);
+else ibWire();
 
 </script>
 
