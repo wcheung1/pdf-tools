@@ -225,8 +225,13 @@ input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;fo
 #ibEditBar .sp{flex:1 1 auto}
 #ibEditBar .lbl{color:#9DB0A6}
 #ibStage{flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}
-#ibFrame{position:relative;line-height:0;touch-action:none;max-width:100%;max-height:100%}
-#ibFrame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;user-select:none;-webkit-user-drag:none}
+#ibStage{min-height:0}
+/* ⚠️ 唔可以靠 max-height:100%：#ibFrame 高度係 auto，百分比高度冇確定父高度可以對照，
+   瀏覽器會當佢冇寫。結果打直嘅相淨係受 max-width 限制，高過螢幕，
+   而 #ibStage 係 overflow:hidden，底邊就碌唔到、裁唔到。
+   而家改為喺 ibFitImage() 用 JS 直接計啱尺寸，四條邊一定睇得到。 */
+#ibFrame{position:relative;line-height:0;touch-action:none}
+#ibFrame img{display:block;user-select:none;-webkit-user-drag:none}
 .ib-shade{position:absolute;background:rgba(10,14,12,.62);pointer-events:none}
 .ib-line{position:absolute;background:transparent}
 .ib-line::before{content:"";position:absolute;inset:0;
@@ -1161,6 +1166,15 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="subview" id="phSizeView">
   <div class="box">
     <h2>統一尺寸</h2>
+    <div class="seg" id="uzKindSeg">
+      <button class="active" data-view="img">🖼️ 一批圖片</button>
+      <button data-view="pdf">📄 PDF（每一版）</button>
+    </div>
+  </div>
+
+  <div class="subview active" id="uzImgView">
+  <div class="box">
+    <h2>圖片</h2>
     <p class="desc">將一批相統一到同一個闊度（或者高度）。其餘一邊會按原本比例自動計，唔會變形。</p>
     <div class="dropzone" id="uzDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀相（可以一次過揀好多張）</div>
     <input type="file" id="uzFile" accept="image/*" multiple>
@@ -1219,6 +1233,67 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     <div class="note">檔名會自動加時間戳，同其他功能一樣。逐張下載嗰陣瀏覽器可能問你「要唔要允許下載多個檔案」，㩒「允許」就得。</div>
     <div class="img-grid" id="uzGrid"></div>
   </div>
+  </div><!-- /uzImgView -->
+
+  <div class="subview" id="uzPdfView">
+  <div class="box">
+    <h2>PDF：每一版統一尺寸</h2>
+    <p class="desc">同一個 PDF 入面各版尺寸唔一，可以全部統一。文字同線條係向量，放大唔會蒙。</p>
+    <div class="dropzone" id="updDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
+    <input type="file" id="updFile" accept="application/pdf">
+    <div class="status" id="updStatus"></div>
+  </div>
+
+  <div class="box" id="updOptBox" style="display:none">
+    <h2>點統一？</h2>
+    <label class="field-label">做法</label>
+    <div class="seg" id="updModeSeg">
+      <button class="active" data-view="prop">按比例（唔會加白邊）</button>
+      <button data-view="box">全部做同一個長方形（唔夠位就留白）</button>
+    </div>
+    <div class="note" id="updModeNote"></div>
+
+    <div id="updPropRow">
+      <label class="field-label">統一邊一邊</label>
+      <div class="seg" id="updDimSeg">
+        <button class="active" data-view="w">↔️ 闊度</button>
+        <button data-view="h">↕️ 高度</button>
+        <button data-view="long">📏 最長嗰邊</button>
+      </div>
+      <div class="status" id="updScan"></div>
+      <label class="field-label">目標尺寸</label>
+      <div class="seg" id="updPickSeg">
+        <button data-view="min">用最短</button>
+        <button data-view="med">用中位數</button>
+        <button data-view="max">用最長</button>
+        <button data-view="custom">自訂</button>
+      </div>
+      <div class="note" id="updAdvice"></div>
+      <div class="export-row" id="updCustomRow" hidden>
+        <label>目標（點 pt，A4 闊度 = 595）
+          <input type="number" id="updTarget" min="50" max="5000" step="10" value="595">
+        </label>
+      </div>
+    </div>
+
+    <div id="updBoxRow" hidden>
+      <label class="field-label">統一做邊個尺寸</label>
+      <div class="seg" id="updPaperSeg">
+        <button class="active" data-view="a4p">A4 直</button>
+        <button data-view="a4l">A4 橫</button>
+        <button data-view="ltrp">Letter 直</button>
+        <button data-view="ltrl">Letter 橫</button>
+        <button data-view="max">跟最大嗰版</button>
+      </div>
+      <div class="note">內容會按比例縮到啱，置中擺，唔夠位嗰邊留白。最啱攞去印。</div>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="updGo">📐 統一並下載 PDF</button>
+    </div>
+    <div class="status" id="updWorkStatus"></div>
+  </div>
+  </div><!-- /uzPdfView -->
   </div><!-- /phSizeView -->
 
 </section>
@@ -6746,8 +6821,26 @@ function ibClose(){
   ibRenderGrid();
 }
 
+/* 按台嘅實際可用空間，計出張相應該顯示幾大 —— 保證四條邊都喺螢幕入面。
+   （之前靠 CSS max-height:100%，喺 auto 高度嘅父元素上面係失效嘅，
+     打直嘅相會超出螢幕底部，底邊拉唔到。） */
+function ibFitImage(){
+  const it = IB.items[IB.idx];
+  if (!it) return;
+  const stage = $("ibStage"), img = $("ibImg");
+  const cs = getComputedStyle(stage);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const availW = Math.max(40, stage.clientWidth - padX);
+  const availH = Math.max(40, stage.clientHeight - padY);
+  const k = Math.min(availW / it.w, availH / it.h);   // 只縮唔放大到爆
+  img.style.width  = Math.max(1, Math.round(it.w * k)) + "px";
+  img.style.height = Math.max(1, Math.round(it.h * k)) + "px";
+}
+
 /* 將 crop 比例畫成畫面上嘅虛線同陰影 */
 function ibPlaceLines(){
+  ibFitImage();
   const it = IB.items[IB.idx];
   if (!it) return;
   const img = $("ibImg");
@@ -6919,6 +7012,192 @@ function ibWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ibWire);
 else ibWire();
+
+
+/* =====================================================
+   12c) PDF 每一版統一尺寸
+   兩種做法：
+     prop = 按比例（唔加白邊，各版比例保持原狀）
+     box  = 全部做同一個長方形（內容置中，唔夠位留白）
+   ⚠️ 有 /Rotate 嘅版要用「視覺尺寸」嚟計，唔係 mediabox 尺寸。
+===================================================== */
+const UPD = {
+  buf: null, name: "", pages: [],   // pages: {w,h,rot,visW,visH}
+  mode: "prop", dim: "w", pick: null, paper: "a4p"
+};
+
+const UPD_PAPER = {
+  a4p:  [595.28, 841.89], a4l: [841.89, 595.28],
+  ltrp: [612, 792],       ltrl: [792, 612]
+};
+
+function updVis(p){ return (p.rot % 180) ? { w: p.h, h: p.w } : { w: p.w, h: p.h }; }
+function updValueOf(p, dim){
+  const v = updVis(p);
+  return dim === "w" ? v.w : dim === "h" ? v.h : Math.max(v.w, v.h);
+}
+
+async function updLoad(files){
+  const f = files[0];
+  if (!f) return;
+  const st = $("updStatus");
+  try {
+    setStatus(st, "⏳ 讀緊…", "busy");
+    const buf = await prepPdfBuffer(await f.arrayBuffer(), f.name, st);
+    const doc = await loadPdfLib(buf);
+    UPD.buf = buf; UPD.name = f.name; UPD.pick = null;
+    UPD.pages = doc.getPages().map(p => {
+      const s = p.getSize(), rot = p.getRotation().angle;
+      return { w: s.width, h: s.height, rot };
+    });
+    $("updOptBox").style.display = "";
+    const uniq = new Set(UPD.pages.map(p => { const v = updVis(p); return `${Math.round(v.w)}x${Math.round(v.h)}`; }));
+    setStatus(st,
+      `✅ ${UPD.pages.length} 版。` +
+      (uniq.size === 1 ? `　全部已經係 ${[...uniq][0]} pt，本身就統一咗。`
+                       : `　有 ${uniq.size} 種唔同尺寸：${[...uniq].slice(0, 6).join("、")}${uniq.size > 6 ? "…" : ""}`),
+      uniq.size === 1 ? "warn" : "ok");
+    updRefresh();
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 讀取失敗：" + (err.message || err), "err");
+  }
+}
+
+function updStats(){
+  const v = UPD.pages.map(p => updValueOf(p, UPD.dim)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const med = v.length % 2 ? v[(v.length - 1) / 2]
+                           : Math.round((v[v.length / 2 - 1] + v[v.length / 2]) / 2);
+  return { min: Math.round(v[0]), max: Math.round(v[v.length - 1]), med: Math.round(med), n: v.length, all: v };
+}
+
+function updTargetFor(pick, st){
+  if (!st) return 0;
+  if (pick === "min") return st.min;
+  if (pick === "med") return st.med;
+  if (pick === "max") return st.max;
+  const x = parseInt($("updTarget").value, 10);
+  return x > 0 ? x : st.med;
+}
+
+function updRefresh(){
+  const isBox = UPD.mode === "box";
+  $("updPropRow").hidden = isBox;
+  $("updBoxRow").hidden = !isBox;
+  $("updModeNote").textContent = isBox
+    ? "每一版都變成完全一樣嘅長方形。比例唔同嘅版會按比例縮到啱，置中擺，其餘留白。攞去印最方便。"
+    : "每一版按比例縮放，比例保持原狀，唔會加白邊。統一咗你揀嗰一邊，另一邊各版仍然可以唔同。";
+  if (isBox || !UPD.pages.length) return;
+
+  const st = updStats();
+  if (!st) return;
+  const label = UPD.dim === "w" ? "闊度" : UPD.dim === "h" ? "高度" : "最長邊";
+  setStatus($("updScan"),
+    `📊 ${st.n} 版嘅${label}：最短 ${st.min}pt、中位數 ${st.med}pt、最長 ${st.max}pt　（A4 闊度 = 595pt）`, "");
+
+  // ⚠️ 同圖片唔同：PDF 嘅文字同線條係向量，放大唔會蒙。
+  // 所以呢度建議「用最長」或者「用中位數」，唔似圖片咁要避開放大。
+  const hasRaster = true;   // 掃描件入面係圖片，放大一樣會蒙，所以照樣提一提
+  if (!UPD.pick) UPD.pick = (st.max / st.min > 1.02) ? "max" : "med";
+  const setLbl = (v, t) => { const b = $("updPickSeg").querySelector(`button[data-view="${v}"]`); if (b) b.textContent = t; };
+  setLbl("min", `用最短 ${st.min}pt`);
+  setLbl("med", `用中位數 ${st.med}pt`);
+  setLbl("max", `用最長 ${st.max}pt`);
+  $("updPickSeg").querySelectorAll("button").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === UPD.pick));
+  $("updCustomRow").hidden = UPD.pick !== "custom";
+
+  const target = updTargetFor(UPD.pick, st);
+  const up = st.all.filter(x => x < target - 0.5).length;
+  $("updAdvice").innerHTML =
+    `<b>建議：用最長 ${st.max}pt</b>　PDF 入面嘅文字同線條係向量，`
+    + `<b>放大唔會蒙</b>，同相片唔同，所以唔使為咗避免放大而遷就最細嗰版。`
+    + `<br>不過如果份 PDF 係掃描件（每版其實係一張相），放大就一樣會蒙 —— 嗰陣揀中位數穩陣啲。`
+    + `<br><br>你而家揀咗 <b>${target}pt</b>：${up} 版要放大、`
+    + `${st.all.filter(x => x > target + 0.5).length} 版要縮細。`;
+}
+
+async function updRun(){
+  const st = $("updWorkStatus");
+  if (!UPD.pages.length){ setStatus(st, "❌ 未揀 PDF。", "err"); return; }
+  $("updGo").disabled = true;
+  try {
+    setStatus(st, "⏳ 處理緊…", "busy");
+    let bytes;
+
+    if (UPD.mode === "prop"){
+      // 原地改：scaleContent + setSize，保留 /Rotate
+      const target = updTargetFor(UPD.pick, updStats());
+      const doc = await loadPdfLib(UPD.buf.slice(0));
+      doc.getPages().forEach(p => {
+        const s = p.getSize(), rot = p.getRotation().angle;
+        const vis = (rot % 180) ? { w: s.height, h: s.width } : { w: s.width, h: s.height };
+        const cur = UPD.dim === "w" ? vis.w : UPD.dim === "h" ? vis.h : Math.max(vis.w, vis.h);
+        if (!(cur > 0)) return;
+        const k = target / cur;
+        p.scaleContent(k, k);
+        p.setSize(s.width * k, s.height * k);
+      });
+      bytes = await doc.save();
+    } else {
+      // 統一做同一個長方形：內容置中，其餘留白
+      const src = await loadPdfLib(UPD.buf.slice(0));
+      const out = await PDFLib.PDFDocument.create();
+      const pages = src.getPages();
+      let BW, BH;
+      if (UPD.paper === "max"){
+        BW = Math.max(...UPD.pages.map(p => updVis(p).w));
+        BH = Math.max(...UPD.pages.map(p => updVis(p).h));
+      } else {
+        [BW, BH] = UPD_PAPER[UPD.paper] || UPD_PAPER.a4p;
+      }
+      const emb = await out.embedPages(pages);
+      pages.forEach((p, i) => {
+        const s = p.getSize(), rot = p.getRotation().angle;
+        const swap = (rot % 180) !== 0;
+        const vis = swap ? { w: s.height, h: s.width } : { w: s.width, h: s.height };
+        const k = Math.min(BW / vis.w, BH / vis.h);
+        const dw = vis.w * k, dh = vis.h * k;
+        const np = out.addPage([BW, BH]);
+        np.drawRectangle({ x: 0, y: 0, width: BW, height: BH, color: PDFLib.rgb(1, 1, 1) });
+        // ⚠️ embedPage 唔會自動套用 /Rotate，要自己補返，否則旋轉頁會擺歪
+        if (!swap) np.drawPage(emb[i], { x: (BW - dw) / 2, y: (BH - dh) / 2, width: dw, height: dh });
+        else       np.drawPage(emb[i], { x: (BW - dw) / 2 + dw, y: (BH - dh) / 2, width: dh, height: dw,
+                                         rotate: PDFLib.degrees(90) });
+      });
+      bytes = await out.save();
+    }
+
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }),
+                 stripExt(UPD.name) + "_統一尺寸.pdf");
+    setStatus(st, `✅ done，${UPD.pages.length} 版已經統一。`, "ok");
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 出錯：" + (err.message || err), "err");
+  } finally {
+    $("updGo").disabled = false;
+  }
+}
+
+function updWire(){
+  if (!$("updDrop")) return;
+  wireDropzone($("updDrop"), $("updFile"), updLoad);      // 呢個真係只收 PDF，用啱嗰個
+
+  wireSeg($("uzKindSeg"), v => {
+    $("uzImgView").classList.toggle("active", v === "img");
+    $("uzPdfView").classList.toggle("active", v === "pdf");
+  });
+  wireSeg($("updModeSeg"),  v => { UPD.mode = v; updRefresh(); });
+  wireSeg($("updDimSeg"),   v => { UPD.dim = v; UPD.pick = null; updRefresh(); });
+  wireSeg($("updPickSeg"),  v => { UPD.pick = v; updRefresh(); });
+  wireSeg($("updPaperSeg"), v => { UPD.paper = v; });
+  $("updTarget").addEventListener("input", () => { if (UPD.pick === "custom") updRefresh(); });
+  $("updGo").addEventListener("click", updRun);
+  updRefresh();
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", updWire);
+else updWire();
 
 </script>
 
