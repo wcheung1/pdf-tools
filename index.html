@@ -205,6 +205,14 @@ input[type=text]{
 input[type=color]{width:46px;height:34px;border:1px solid var(--line);border-radius:7px;padding:2px;background:#fff;cursor:pointer}
 input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;font-size:.9rem;background:#FCFDFB;color:var(--ink)}
 /* ---------- 新分頁元件 ---------- */
+/* ⚠️ 一定要擺喺所有 display 規則之後。
+   `hidden` 屬性嘅 display:none 嚟自瀏覽器預設樣式表，
+   而作者樣式表（我哋自己寫嘅 CSS）一定贏瀏覽器預設，同 specificity 無關。
+   所以只要個元素嘅 class 或者 inline style 寫過 display，hidden 就完全失效。
+   實測中招：wsToolbar / teToolbar（.toolbar 有 display:flex）、
+             s2tPunctRow（inline display:flex）、phShareRow（.export-row 有 display:flex）。
+   加呢一條就一次過解決，連將來新加嘅都覆蓋。 */
+[hidden]{display:none !important}
 .subview{display:none}
 .subview.active{display:block}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:12px;flex-wrap:wrap}
@@ -302,6 +310,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <button data-panel="panel-trim" role="tab">✂️ 裁邊工具</button>
       <button data-panel="panel-ocr" role="tab">🔍 掃描件認字</button>
       <button data-panel="panel-photo" role="tab">📷 相片瘦身</button>
+      <button data-panel="panel-merge" role="tab">🧩 合併／切割</button>
       <button data-panel="panel-reader" role="tab">📖 睇書模式</button>
       <button data-panel="panel-s2t" role="tab">繁 簡轉繁</button>
     </nav>
@@ -823,6 +832,155 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
     </div>
     <div class="status" id="ocrRepStatus"></div>
   </div>
+</section>
+
+<!-- ============ 13. 圖片合併 ============ -->
+<section id="panel-merge" class="panel">
+  <div class="box">
+    <h2>圖片合併／切割</h2>
+    <p class="desc">將幾張圖併成一張，或者將一張圖斬開幾份。全部喺你部機做，圖唔會離開你部電腦。</p>
+    <div class="seg" id="mgModeSeg">
+      <button class="active" data-view="join">🧩 合併（多張變一張）</button>
+      <button data-view="cut">✂️ 切割（一張變多張）</button>
+    </div>
+  </div>
+
+  <div class="subview active" id="mgJoinView">
+  <div class="box">
+    <h2>合併</h2>
+    <p class="desc">左右排或者上下排。闊窄唔同都唔緊要，會自動置中，空位填白。</p>
+    <div class="dropzone" id="mgDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀圖（可以一次過揀好多張）</div>
+    <input type="file" id="mgFile" accept="image/*" multiple>
+    <div class="status" id="mgPickStatus"></div>
+    <div class="img-grid" id="mgGrid"></div>
+    <div class="note" id="mgOrderNote" hidden>
+      上面就係合併嘅次序。預設照檔名嘅數字排（01、02…10 會排得啱）。
+      唔啱就用每張相底下嘅 <b>◀ ▶</b> 掣調位。
+    </div>
+  </div>
+
+  <div class="box" id="mgOptBox" style="display:none">
+    <h2>點併？</h2>
+
+    <label class="field-label">方向</label>
+    <div class="seg" id="mgDirSeg">
+      <button class="active" data-view="h">↔️ 左右排（第一張喺最左）</button>
+      <button data-view="v">↕️ 上下排（第一張喺最上）</button>
+    </div>
+
+    <label class="field-label">大細唔同點擺？</label>
+    <div class="seg" id="mgAlignSeg">
+      <button class="active" data-view="center">置中（空位填白）</button>
+      <button data-view="start">靠開頭</button>
+      <button data-view="end">靠結尾</button>
+    </div>
+
+    <label class="field-label">中間留唔留縫？</label>
+    <div class="seg" id="mgGapSeg">
+      <button class="active" data-view="0">貼實</button>
+      <button data-view="10">細縫</button>
+      <button data-view="30">闊縫</button>
+    </div>
+
+    <label style="display:flex;align-items:center;gap:8px;margin:10px 0;cursor:pointer">
+      <input type="checkbox" id="mgUniform">
+      <span style="font-weight:600;font-size:.92rem">先將每張縮到一樣大細再併</span>
+    </label>
+    <div class="note">
+      唔剔＝保持每張原本尺寸,淨係置中填白（你要嘅就係呢個）。<br>
+      剔咗＝左右排會統一高度、上下排會統一闊度,啲圖會排得好齊,但會有縮放。
+    </div>
+
+    <label class="field-label">輸出格式</label>
+    <div class="seg" id="mgFmtSeg">
+      <button class="active" data-view="jpg">JPG（細檔）</button>
+      <button data-view="png">PNG（無損）</button>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="mgGo">🧩 開始合併</button>
+    </div>
+    <div class="status" id="mgWorkStatus"></div>
+  </div>
+
+  <div class="box" id="mgResultBox" style="display:none">
+    <h2>合併結果</h2>
+    <div class="status ok" id="mgSummary"></div>
+    <div class="export-row">
+      <button class="btn big" id="mgSave">⬇️ 下載合併圖</button>
+      <button class="btn" id="mgShare" hidden>📤 分享／存去相簿</button>
+    </div>
+    <img id="mgPreview" alt="合併預覽"
+         style="max-width:100%;margin-top:12px;border:1px solid var(--line);border-radius:8px;background:#F4F6F3">
+  </div>
+  </div><!-- /mgJoinView -->
+
+  <div class="subview" id="mgCutView">
+  <div class="box">
+    <h2>切割</h2>
+    <p class="desc">將一張圖平均斬開。最常用係「左右斬開兩份」——掃描一個跨頁之後,想變返做左頁同右頁。</p>
+    <div class="dropzone" id="ctDrop" tabindex="0"><strong>拖放圖片到呢度</strong><br>或者㩒一下揀圖（可以一次過揀好多張,每張都會照同一個方式斬）</div>
+    <input type="file" id="ctFile" accept="image/*" multiple>
+    <div class="status" id="ctStatus"></div>
+  </div>
+
+  <div class="box" id="ctOptBox" style="display:none">
+    <h2>點斬？</h2>
+
+    <label class="field-label">方向</label>
+    <div class="seg" id="ctDirSeg">
+      <button class="active" data-view="v">↔️ 打直斬（左右各一半）</button>
+      <button data-view="h">↕️ 打橫斬（上下各一半）</button>
+    </div>
+
+    <label class="field-label">斬做幾份？</label>
+    <div class="seg" id="ctPartsSeg">
+      <button class="active" data-view="2">2 份</button>
+      <button data-view="3">3 份</button>
+      <button data-view="4">4 份</button>
+    </div>
+    <div class="note" id="ctPartsNote"></div>
+
+    <label class="field-label">中間位微調</label>
+    <div class="export-row">
+      <input type="range" id="ctOffset" min="-15" max="15" step="0.5" value="0" style="flex:1;max-width:320px">
+      <span class="hint" id="ctOffsetVal">正中間</span>
+      <button class="btn" id="ctOffsetReset">歸零</button>
+    </div>
+    <div class="note">
+      掃描書本嘅時候,中間條裝訂線未必啱啱好喺正中。唔啱就拉一拉:
+      <b>向左拉</b>＝斬開位向左移,<b>向右拉</b>＝向右移。只有「2 份」先用得着。
+    </div>
+
+    <label class="field-label">輸出格式</label>
+    <div class="seg" id="ctFmtSeg">
+      <button class="active" data-view="jpg">JPG（細檔）</button>
+      <button data-view="png">PNG（無損）</button>
+    </div>
+
+    <div class="export-row">
+      <button class="btn big" id="ctGo">✂️ 開始切割</button>
+    </div>
+    <div class="status" id="ctWorkStatus"></div>
+  </div>
+
+  <div class="box" id="ctResultBox" style="display:none">
+    <h2>切割結果</h2>
+    <div class="status ok" id="ctSummary"></div>
+    <div class="export-row">
+      <button class="btn big" id="ctSaveAll">⬇️ 逐張下載（唔用 zip）</button>
+      <button class="btn" id="ctShare" hidden>📤 分享／存去相簿</button>
+    </div>
+    <div class="note">
+      檔名會自動加上時間戳,同其他功能一樣,例如
+      <code>相片_左_20260830_142509.jpg</code>。<br>
+      逐張下載嗰陣瀏覽器可能問你「要唔要允許下載多個檔案」,㩒「允許」就得。
+      唔想一次過就喺下面逐張㩒「下載」。
+    </div>
+    <div class="img-grid" id="ctGrid"></div>
+  </div>
+  </div><!-- /mgCutView -->
+
 </section>
 
 <!-- ============ 12. 相片瘦身 ============ -->
@@ -5574,6 +5732,458 @@ function phWire(){
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", phWire);
 else phWire();
+
+
+/* =====================================================
+   13) 圖片合併 —— 幾張圖併成一張（左右排 / 上下排）
+   闊窄唔同會置中，空位填白。全部喺瀏覽器做。
+===================================================== */
+const IMG_MG = {
+  files: [],            // 已排好序嘅 File
+  dir: "h",             // h = 左右, v = 上下
+  align: "center",
+  gap: 0,
+  uniform: false,
+  fmt: "jpg",
+  blob: null, url: null, w: 0, h: 0, scaled: 1
+};
+
+/* ⚠️ canvas 有上限，唔擋住就會靜靜雞出一張全黑／空白圖，唔會報錯。
+   10 張 4032px 高嘅相打直併 = 40320px，好多瀏覽器就死喺呢度。
+   側邊上限各家唔同，面積上限先係真殺手（仲要食 4 bytes/像素 記憶體）。
+   40M 像素 ≈ 160MB 記憶體，手機都頂得住。 */
+const MG_MAX_SIDE = 16000;
+const MG_MAX_AREA = 40e6;
+
+/* 檔名數字排序：01、02 … 10 要排得啱（普通排序會將 10 排喺 2 前面） */
+function mgSortFiles(files){
+  return [...files].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function mgRenderList(){
+  const grid = $("mgGrid");
+  grid.innerHTML = "";
+  // 縮圖 URL 跟住檔案本身快取，唔好每次重畫都建新嘅。
+  // （之前每撳一次 ◀▶ 就建一批新 URL，舊嘅 60 秒後清，
+  //   慢慢調位超過 60 秒，畫面上啲縮圖就會突然變爛圖。）
+  IMG_MG.thumbs = IMG_MG.thumbs || new Map();
+  for (const [f, u] of IMG_MG.thumbs) if (!IMG_MG.files.includes(f)){ URL.revokeObjectURL(u); IMG_MG.thumbs.delete(f); }
+  IMG_MG.files.forEach((f, i) => {
+    const d = document.createElement("div");
+    d.className = "img-item";
+    let url = IMG_MG.thumbs.get(f);
+    if (!url){ url = URL.createObjectURL(f); IMG_MG.thumbs.set(f, url); }
+    d.innerHTML =
+      `<img src="${url}" alt="">` +
+      `<div class="nm"><b>${i + 1}.</b> ${escapeHtml(f.name)}</div>` +
+      `<div style="display:flex;gap:4px;margin-top:4px">` +
+      `<button class="btn" data-mg-mv="${i}" data-d="-1" style="flex:1;padding:4px"${i === 0 ? " disabled" : ""}>◀</button>` +
+      `<button class="btn" data-mg-mv="${i}" data-d="1" style="flex:1;padding:4px"${i === IMG_MG.files.length - 1 ? " disabled" : ""}>▶</button>` +
+      `</div>`;
+    grid.appendChild(d);
+  });
+  $("mgOrderNote").hidden = IMG_MG.files.length < 2;
+}
+
+function mgLoadFiles(files){
+  const imgs = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(f.name));
+  if (imgs.length < 1){ setStatus($("mgPickStatus"), "❌ 揀唔到圖片檔。", "err"); return; }
+  if (IMG_MG.thumbs){ IMG_MG.thumbs.forEach(u => URL.revokeObjectURL(u)); IMG_MG.thumbs.clear(); }
+  IMG_MG.files = mgSortFiles(imgs);
+  mgRenderList();
+  $("mgOptBox").style.display = "";
+  $("mgResultBox").style.display = "none";
+  const heic = imgs.filter(f => /\.(heic|heif)$/i.test(f.name));
+  setStatus($("mgPickStatus"),
+    `✅ 揀咗 ${imgs.length} 張，已經照檔名數字排好序。` +
+    (imgs.length < 2 ? "　（合併至少要兩張）" : "") +
+    (heic.length ? `　⚠️ 有 ${heic.length} 張係 iPhone HEIC 格式，部分瀏覽器開唔到。` : ""),
+    imgs.length < 2 || heic.length ? "warn" : "ok");
+}
+
+async function mgRun(){
+  const st = $("mgWorkStatus");
+  if (IMG_MG.files.length < 2){ setStatus(st, "❌ 最少要兩張圖先合併到。", "err"); return; }
+  $("mgGo").disabled = true;
+  try {
+    setStatus(st, "⏳ 讀緊啲圖…", "busy");
+    const bmps = [];
+    const bad = [];
+    for (const f of IMG_MG.files){
+      try { bmps.push(await phDecode(f)); }        // 同「相片瘦身」共用，已處理 EXIF 打橫問題
+      catch (e){ bad.push(f.name); }
+    }
+    if (bmps.length < 2){
+      setStatus(st, "❌ 讀到嘅圖唔夠兩張。" + (bad.length ? "（開唔到：" + bad.join("、") + "）" : ""), "err");
+      return;
+    }
+
+    const horiz = IMG_MG.dir === "h";
+    let sizes = bmps.map(b => ({
+      w: b.width || b.naturalWidth,
+      h: b.height || b.naturalHeight
+    }));
+
+    // 選項：先統一大細（左右排統一高度／上下排統一闊度，以最大嗰張為準）
+    if (IMG_MG.uniform){
+      const target = horiz ? Math.max(...sizes.map(s => s.h)) : Math.max(...sizes.map(s => s.w));
+      sizes = sizes.map(s => horiz
+        ? { w: Math.max(1, Math.round(s.w * target / s.h)), h: target }
+        : { w: target, h: Math.max(1, Math.round(s.h * target / s.w)) });
+    }
+
+    const gap = IMG_MG.gap;
+    let W, H;
+    if (horiz){
+      W = sizes.reduce((a, s) => a + s.w, 0) + gap * (sizes.length - 1);
+      H = Math.max(...sizes.map(s => s.h));
+    } else {
+      W = Math.max(...sizes.map(s => s.w));
+      H = sizes.reduce((a, s) => a + s.h, 0) + gap * (sizes.length - 1);
+    }
+
+    // 超出 canvas 上限就整體縮細，並且照實話俾用家知
+    let scale = 1;
+    const area = W * H;
+    if (Math.max(W, H) > MG_MAX_SIDE) scale = Math.min(scale, MG_MAX_SIDE / Math.max(W, H));
+    if (area * scale * scale > MG_MAX_AREA) scale = Math.min(scale, Math.sqrt(MG_MAX_AREA / area));
+    IMG_MG.scaled = scale;
+
+    const outW = Math.max(1, Math.round(W * scale));
+    const outH = Math.max(1, Math.round(H * scale));
+
+    setStatus(st, `⏳ 畫緊 ${outW}×${outH}…`, "busy");
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#FFFFFF";                    // 空位同透明位一律填白
+    ctx.fillRect(0, 0, outW, outH);
+
+    let cur = 0;
+    for (let i = 0; i < bmps.length; i++){
+      const s = sizes[i];
+      const dw = s.w * scale, dh = s.h * scale;
+      let x, y;
+      if (horiz){
+        x = cur;
+        const room = outH - dh;
+        y = IMG_MG.align === "start" ? 0 : IMG_MG.align === "end" ? room : room / 2;
+        cur += dw + gap * scale;
+      } else {
+        y = cur;
+        const room = outW - dw;
+        x = IMG_MG.align === "start" ? 0 : IMG_MG.align === "end" ? room : room / 2;
+        cur += dh + gap * scale;
+      }
+      ctx.drawImage(bmps[i], Math.round(x), Math.round(y), Math.round(dw), Math.round(dh));
+      if (bmps[i].close) bmps[i].close();
+    }
+
+    setStatus(st, "⏳ 輸出緊…", "busy");
+    const type = IMG_MG.fmt === "png" ? "image/png" : "image/jpeg";
+    const blob = await new Promise(r => c.toBlob(r, type, 0.92));
+    c.width = c.height = 0;
+    if (!blob) throw new Error("輸出唔到，可能張圖太大。試下剔「先將每張縮到一樣大細」或者減少張數。");
+
+    if (IMG_MG.url) URL.revokeObjectURL(IMG_MG.url);
+    IMG_MG.blob = blob; IMG_MG.url = URL.createObjectURL(blob); IMG_MG.w = outW; IMG_MG.h = outH;
+    $("mgPreview").src = IMG_MG.url;
+    $("mgResultBox").style.display = "";
+    setStatus($("mgSummary"),
+      `✅ 併好咗 ${bmps.length} 張，${horiz ? "左右排" : "上下排"}，成品 ${outW}×${outH}，` +
+      `檔案 ${phFmtSize(blob.size)}。` +
+      (scale < 1 ? `　⚠️ 原本尺寸超出瀏覽器上限，已經自動縮到 ${Math.round(scale * 100)}%。` : "") +
+      (bad.length ? `　開唔到：${bad.join("、")}` : ""), "ok");
+    setStatus(st, "", "");
+    mgWireShare();
+    $("mgResultBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 合併失敗：" + (err.message || err), "err");
+  } finally {
+    $("mgGo").disabled = false;
+  }
+}
+
+function mgWireShare(){
+  let ok = false;
+  try {
+    const f = [new File([IMG_MG.blob], "merged.jpg", { type: IMG_MG.blob.type })];
+    ok = !!(navigator.canShare && navigator.share && navigator.canShare({ files: f }));
+  } catch (e){ ok = false; }
+  $("mgShare").hidden = !ok;
+}
+
+async function mgShareOut(){
+  try {
+    const name = "合併圖." + (IMG_MG.fmt === "png" ? "png" : "jpg");
+    const files = [new File([IMG_MG.blob], name, { type: IMG_MG.blob.type })];
+    if (!(navigator.canShare && navigator.canShare({ files }))){
+      setStatus($("mgSummary"), "呢部機唔支援分享，請用「下載合併圖」。", "warn"); return;
+    }
+    await navigator.share({ files, title: "合併圖" });
+  } catch (e){
+    if (e && e.name === "AbortError") return;
+    setStatus($("mgSummary"), "分享唔到：" + (e.message || e), "warn");
+  }
+}
+
+/* ---------- 接線 ---------- */
+function mgWire(){
+  const drop = $("mgDrop"), input = $("mgFile");
+  if (!drop || !input) return;
+  wireDropzone(drop, input, mgLoadFiles);
+
+  const seg = (id, fn) => {
+    const box = $(id);
+    if (!box) return;
+    box.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      box.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      fn(b.dataset.view);
+    });
+  };
+  seg("mgDirSeg",   v => { IMG_MG.dir = v; });
+  seg("mgAlignSeg", v => { IMG_MG.align = v; });
+  seg("mgGapSeg",   v => { IMG_MG.gap = +v; });
+  seg("mgFmtSeg",   v => { IMG_MG.fmt = v; });
+  $("mgUniform").addEventListener("change", e => { IMG_MG.uniform = e.target.checked; });
+
+  // 調位：◀ ▶
+  $("mgGrid").addEventListener("click", e => {
+    const b = e.target.closest("[data-mg-mv]");
+    if (!b) return;
+    const i = +b.dataset.mgMv, d = +b.dataset.d, j = i + d;
+    if (j < 0 || j >= IMG_MG.files.length) return;
+    const t = IMG_MG.files[i]; IMG_MG.files[i] = IMG_MG.files[j]; IMG_MG.files[j] = t;
+    mgRenderList();
+  });
+
+  $("mgGo").addEventListener("click", mgRun);
+  $("mgSave").addEventListener("click", () => {
+    if (IMG_MG.blob) downloadBlob(IMG_MG.blob, "合併圖." + (IMG_MG.fmt === "png" ? "png" : "jpg"));
+  });
+  $("mgShare").addEventListener("click", mgShareOut);
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mgWire);
+else mgWire();
+
+
+/* =====================================================
+   13b) 圖片切割 —— 一張圖平均斬開幾份
+   最常用：掃描咗一個跨頁，斬返做左頁 / 右頁。
+   同「合併」共用一個分頁，用上面個掣切換。
+===================================================== */
+const IMG_CT = {
+  files: [], items: [], dir: "v", parts: 2, offset: 0, fmt: "jpg"
+};
+
+/* 斬邊度：返回每一份嘅 [起點, 闊度]（或者高度）。
+   offset 係百分比，只喺斬 2 份嗰陣用 —— 掃描書本條裝訂線唔一定喺正中。 */
+function ctCutPoints(total, parts, offsetPct){
+  const pts = [];
+  if (parts === 2){
+    const mid = Math.round(total * (0.5 + (offsetPct || 0) / 100));
+    const m = Math.max(1, Math.min(total - 1, mid));
+    pts.push([0, m], [m, total - m]);
+  } else {
+    let start = 0;
+    for (let i = 0; i < parts; i++){
+      // 用 round 逐格算，唔會漏／唔會overlap，最後一格食晒餘數
+      const end = (i === parts - 1) ? total : Math.round(total * (i + 1) / parts);
+      pts.push([start, Math.max(1, end - start)]);
+      start = end;
+    }
+  }
+  return pts;
+}
+
+function ctPartLabel(i, parts, dir){
+  if (parts === 2) return dir === "v" ? (i === 0 ? "左" : "右") : (i === 0 ? "上" : "下");
+  return String(i + 1);
+}
+
+function ctLoadFiles(files){
+  const imgs = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(f.name));
+  if (!imgs.length){ setStatus($("ctStatus"), "❌ 揀唔到圖片檔。", "err"); return; }
+  IMG_CT.files = mgSortFiles(imgs);          // 同合併共用數字排序
+  $("ctOptBox").style.display = "";
+  $("ctResultBox").style.display = "none";
+  const heic = imgs.filter(f => /\.(heic|heif)$/i.test(f.name));
+  const total = imgs.reduce((a, f) => a + f.size, 0);
+  setStatus($("ctStatus"),
+    `✅ 揀咗 ${imgs.length} 張，總共 ${phFmtSize(total)}。` +
+    (heic.length ? `　⚠️ 有 ${heic.length} 張係 iPhone HEIC 格式，部分瀏覽器開唔到。` : ""),
+    heic.length ? "warn" : "ok");
+}
+
+function ctRenderGrid(){
+  const grid = $("ctGrid");
+  grid.innerHTML = "";
+  IMG_CT.items.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.className = "img-item";
+    d.innerHTML =
+      `<img src="${it.url}" alt="">` +
+      `<div class="nm">${escapeHtml(it.outName)}</div>` +
+      `<div class="nm">${it.w}×${it.h} · ${phFmtSize(it.blob.size)}</div>` +
+      `<button class="btn" data-ct-dl="${i}" style="width:100%;margin-top:6px;padding:6px">⬇️ 下載</button>`;
+    grid.appendChild(d);
+  });
+}
+
+async function ctRun(){
+  const st = $("ctWorkStatus");
+  if (!IMG_CT.files.length){ setStatus(st, "❌ 未揀圖。", "err"); return; }
+  $("ctGo").disabled = true;
+  try {
+    IMG_CT.items.forEach(it => { if (it.url) URL.revokeObjectURL(it.url); });
+    IMG_CT.items = [];
+    const type = IMG_CT.fmt === "png" ? "image/png" : "image/jpeg";
+    const ext  = IMG_CT.fmt === "png" ? "png" : "jpg";
+    const bad = [];
+
+    for (let n = 0; n < IMG_CT.files.length; n++){
+      const f = IMG_CT.files[n];
+      setStatus(st, `⏳ 斬緊第 ${n + 1}/${IMG_CT.files.length} 張…`, "busy");
+      let bmp;
+      try { bmp = await phDecode(f); }        // 同相片瘦身共用，已處理 EXIF 打橫問題
+      catch (e){ bad.push(f.name); continue; }
+
+      const W = bmp.width || bmp.naturalWidth;
+      const H = bmp.height || bmp.naturalHeight;
+      const vertical = IMG_CT.dir === "v";    // 打直斬 = 沿住 X 軸切
+      const pts = ctCutPoints(vertical ? W : H, IMG_CT.parts, IMG_CT.offset);
+
+      for (let i = 0; i < pts.length; i++){
+        const [start, len] = pts[i];
+        const cw = vertical ? len : W;
+        const ch = vertical ? H : len;
+        const c = document.createElement("canvas");
+        c.width = cw; c.height = ch;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, cw, ch);
+        // 由原圖剪出對應嗰嚿，1:1 唔縮放
+        ctx.drawImage(bmp,
+          vertical ? start : 0, vertical ? 0 : start, cw, ch,
+          0, 0, cw, ch);
+        const blob = await new Promise(r => c.toBlob(r, type, 0.92));
+        c.width = c.height = 0;
+        if (!blob) continue;
+        IMG_CT.items.push({
+          outName: `${stripExt(f.name)}_${ctPartLabel(i, IMG_CT.parts, IMG_CT.dir)}.${ext}`,
+          blob, url: URL.createObjectURL(blob), w: cw, h: ch
+        });
+      }
+      if (bmp.close) bmp.close();
+    }
+
+    if (!IMG_CT.items.length){
+      setStatus(st, "❌ 一張都斬唔到。" + (bad.length ? "（開唔到：" + bad.join("、") + "）" : ""), "err");
+      return;
+    }
+    $("ctResultBox").style.display = "";
+    setStatus($("ctSummary"),
+      `✅ ${IMG_CT.files.length - bad.length} 張斬成 ${IMG_CT.items.length} 張。` +
+      (bad.length ? `　開唔到：${bad.join("、")}` : ""), "ok");
+    setStatus(st, "", "");
+    ctRenderGrid();
+    ctWireShare();
+    $("ctResultBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err){
+    console.error(err);
+    setStatus(st, "❌ 切割失敗：" + (err.message || err), "err");
+  } finally {
+    $("ctGo").disabled = false;
+  }
+}
+
+function ctWireShare(){
+  let ok = false;
+  try {
+    const f = IMG_CT.items.slice(0, 1).map(it => new File([it.blob], it.outName, { type: it.blob.type }));
+    ok = !!(navigator.canShare && navigator.share && f.length && navigator.canShare({ files: f }));
+  } catch (e){ ok = false; }
+  $("ctShare").hidden = !ok;
+}
+
+async function ctShareAll(){
+  try {
+    const files = IMG_CT.items.map(it => new File([it.blob], it.outName, { type: it.blob.type }));
+    if (!(navigator.canShare && navigator.canShare({ files }))){
+      setStatus($("ctSummary"), "呢部機唔支援一次過分享，請用「逐張下載」。", "warn"); return;
+    }
+    await navigator.share({ files, title: "斬開咗嘅圖" });
+  } catch (e){
+    if (e && e.name === "AbortError") return;
+    setStatus($("ctSummary"), "分享唔到：" + (e.message || e), "warn");
+  }
+}
+
+/* 逐張下載，唔打包做 zip。downloadBlob 會自動加時間戳。 */
+async function ctSaveAll(){
+  const btn = $("ctSaveAll");
+  btn.disabled = true;
+  for (let i = 0; i < IMG_CT.items.length; i++){
+    btn.textContent = `⬇️ 下載緊 ${i + 1}/${IMG_CT.items.length}…`;
+    downloadBlob(IMG_CT.items[i].blob, IMG_CT.items[i].outName);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  btn.textContent = "⬇️ 逐張下載（唔用 zip）";
+  btn.disabled = false;
+}
+
+function ctWire(){
+  if (!$("ctDrop")) return;
+  wireDropzone($("ctDrop"), $("ctFile"), ctLoadFiles);
+
+  // 合併 / 切割 兩個模式切換
+  wireSeg($("mgModeSeg"), v => {
+    $("mgJoinView").classList.toggle("active", v === "join");
+    $("mgCutView").classList.toggle("active", v === "cut");
+  });
+
+  const syncParts = () => {
+    const two = IMG_CT.parts === 2;
+    $("ctOffset").disabled = !two;
+    $("ctOffsetReset").disabled = !two;
+    $("ctPartsNote").textContent = two
+      ? (IMG_CT.dir === "v" ? "斬做左右兩份，最啱掃描跨頁還原做單頁。" : "斬做上下兩份。")
+      : `平均斬做 ${IMG_CT.parts} 份，中間位微調唔適用。`;
+  };
+  wireSeg($("ctDirSeg"),   v => { IMG_CT.dir = v; syncParts(); });
+  wireSeg($("ctPartsSeg"), v => { IMG_CT.parts = +v; syncParts(); });
+  wireSeg($("ctFmtSeg"),   v => { IMG_CT.fmt = v; });
+  syncParts();
+
+  const off = $("ctOffset");
+  const showOff = () => {
+    const v = +off.value;
+    $("ctOffsetVal").textContent = v === 0 ? "正中間" : (v < 0 ? `向左 ${Math.abs(v)}%` : `向右 ${v}%`);
+    IMG_CT.offset = v;
+  };
+  off.addEventListener("input", showOff);
+  $("ctOffsetReset").addEventListener("click", () => { off.value = 0; showOff(); });
+  showOff();
+
+  $("ctGo").addEventListener("click", ctRun);
+  $("ctSaveAll").addEventListener("click", ctSaveAll);
+  $("ctShare").addEventListener("click", ctShareAll);
+  $("ctGrid").addEventListener("click", e => {
+    const b = e.target.closest("[data-ct-dl]");
+    if (!b) return;
+    const it = IMG_CT.items[+b.dataset.ctDl];
+    if (it) downloadBlob(it.blob, it.outName);
+  });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ctWire);
+else ctWire();
 
 </script>
 
