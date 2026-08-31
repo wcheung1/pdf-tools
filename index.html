@@ -243,6 +243,12 @@ input[type=number]{padding:7px;border:1px solid var(--line);border-radius:7px;fo
 .ib-line[data-h="top"]::before,.ib-line[data-h="bottom"]::before{top:10px;bottom:10px}
 .ib-line[data-h="left"]::before,.ib-line[data-h="right"]::before{left:10px;right:10px}
 .ib-line.drag::before{background-image:none;background:#4FB89A}
+.ib-corner{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;
+  cursor:nwse-resize;touch-action:none;z-index:2}
+.ib-corner::before{content:"";position:absolute;inset:7px;background:#4FB89A;
+  border:2px solid #fff;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.ib-corner[data-c="tr"],.ib-corner[data-c="bl"]{cursor:nesw-resize}
+.ib-corner.drag::before{inset:4px}
 #ibEditInfo{flex:0 0 auto;text-align:center;padding:8px;font-size:.82rem;color:#9DB0A6}
 .img-item .cut-badge{position:absolute;top:4px;right:4px;background:var(--accent);color:#fff;
   border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:700}
@@ -771,6 +777,10 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
       <div class="ib-line" data-h="bottom"></div>
       <div class="ib-line" data-h="left"></div>
       <div class="ib-line" data-h="right"></div>
+      <div class="ib-corner" data-c="tl"></div>
+      <div class="ib-corner" data-c="tr"></div>
+      <div class="ib-corner" data-c="bl"></div>
+      <div class="ib-corner" data-c="br"></div>
     </div>
   </div>
   <div id="ibEditInfo">拉四條虛線裁邊　·　裁完㩒「完成」</div>
@@ -3465,24 +3475,30 @@ $("trGo").onclick = async () => {
   }
   setStatus(st, "⏳ 裁切中…", "busy");
   try {
-    const doc = await loadPdfLib(TR.buffer);
-    const pages = doc.getPages();
-    const target = new Set(targetPages ? targetPages : pages.map((_, i) => i + 1));
+    // 先攞每版尺寸，將「幾多點」換算成比例，再交俾 pdfHardCrop 真裁。
+    // ⚠️ 舊做法淨係改 MediaBox，係「收埋」唔係「裁走」——
+    //    之後行「統一尺寸」條邊就會走返出嚟（實測證實）。
+    const probe = await loadPdfLib(TR.buffer.slice(0));
+    const sizes = probe.getPages().map(p => {
+      const b = p.getMediaBox();
+      const rot = p.getRotation().angle;
+      // 用家打嘅數字係「畫面上」嘅上下左右，所以要用視覺尺寸做分母
+      return (rot % 180) ? { w: b.height, h: b.width } : { w: b.width, h: b.height };
+    });
+    const target = new Set(targetPages ? targetPages : sizes.map((_, i) => i + 1));
     let trimmed = 0;
-    for (let i = 0; i < pages.length; i++){
-      if (!target.has(i + 1)) continue;
-      const pg = pages[i];
-      const mb = pg.getMediaBox();
-      // 新 MediaBox：x 向右移 left、y 向上移 bottom，
-      // 闊度減 left+right、高度減 top+bottom
-      const nx = mb.x + left;
-      const ny = mb.y + bottom;
-      const nw = Math.max(1, mb.width - left - right);
-      const nh = Math.max(1, mb.height - top - bottom);
-      pg.setMediaBox(nx, ny, nw, nh);
+    const { bytes, cut } = await pdfHardCrop(TR.buffer.slice(0), i => {
+      if (!target.has(i + 1)) return null;
+      const s = sizes[i];
+      if (!s || !(s.w > 0) || !(s.h > 0)) return null;
       trimmed++;
-    }
-    const bytes = await doc.save();
+      return {
+        t: Math.max(0, Math.min(0.98, top / s.h)),
+        b: Math.max(0, Math.min(0.98, bottom / s.h)),
+        l: Math.max(0, Math.min(0.98, left / s.w)),
+        r: Math.max(0, Math.min(0.98, right / s.w))
+      };
+    });
     downloadBlob(new Blob([bytes], { type: "application/pdf" }), baseName(TR.file.name) + "_trimmed.pdf");
     setStatus(st, `✅ 搞掂！已裁切 ${trimmed} 頁並下載。`, "ok");
   } catch (err){
@@ -6886,6 +6902,10 @@ function ibPlaceLines(){
   set('.ib-shade[data-e="bottom"]', { left: "0px", top: bottom + "px", width: W + "px", height: (H - bottom) + "px" });
   set('.ib-shade[data-e="left"]',   { left: "0px", top: top + "px", width: left + "px", height: (bottom - top) + "px" });
   set('.ib-shade[data-e="right"]',  { left: right + "px", top: top + "px", width: (W - right) + "px", height: (bottom - top) + "px" });
+  // 四隻角擺喺兩條線嘅交叉點
+  const cp = { tl: [left, top], tr: [right, top], bl: [left, bottom], br: [right, bottom] };
+  for (const k in cp) set(`.ib-corner[data-c="${k}"]`, { left: cp[k][0] + "px", top: cp[k][1] + "px" });
+
   const o = ibOutSize(it);
   $("ibEditInfo").textContent =
     `拉四條虛線裁邊　·　${it.w}×${it.h} → ${o.w}×${o.h}` +
@@ -6893,12 +6913,15 @@ function ibPlaceLines(){
 }
 
 function ibPointerDown(e){
-  const line = e.target.closest(".ib-line");
-  if (!line) return;
+  // 角要行先，因為佢疊喺兩條線上面
+  const corner = e.target.closest(".ib-corner");
+  const line = corner ? null : e.target.closest(".ib-line");
+  const el = corner || line;
+  if (!el) return;
   e.preventDefault();
-  IB.drag = { edge: line.dataset.h, el: line };
-  line.classList.add("drag");
-  line.setPointerCapture && line.setPointerCapture(e.pointerId);
+  IB.drag = corner ? { corner: corner.dataset.c, el } : { edge: line.dataset.h, el };
+  el.classList.add("drag");
+  el.setPointerCapture && el.setPointerCapture(e.pointerId);
 }
 
 function ibPointerMove(e){
@@ -6911,10 +6934,20 @@ function ibPointerMove(e){
   const y = (e.clientY - r.top) / r.height;
   const c = it.crop;
   const MIN = 0.02;                               // 至少留返 2% 闊／高，唔好裁到冇
-  if (IB.drag.edge === "top")    c.t = Math.max(0, Math.min(y, 1 - c.b - MIN));
-  if (IB.drag.edge === "bottom") c.b = Math.max(0, Math.min(1 - y, 1 - c.t - MIN));
-  if (IB.drag.edge === "left")   c.l = Math.max(0, Math.min(x, 1 - c.r - MIN));
-  if (IB.drag.edge === "right")  c.r = Math.max(0, Math.min(1 - x, 1 - c.l - MIN));
+  const setEdge = {
+    top:    () => { c.t = Math.max(0, Math.min(y, 1 - c.b - MIN)); },
+    bottom: () => { c.b = Math.max(0, Math.min(1 - y, 1 - c.t - MIN)); },
+    left:   () => { c.l = Math.max(0, Math.min(x, 1 - c.r - MIN)); },
+    right:  () => { c.r = Math.max(0, Math.min(1 - x, 1 - c.l - MIN)); }
+  };
+  if (IB.drag.corner){
+    // 拉角 = 橫邊同直邊一齊郁
+    const pair = { tl: ["top", "left"], tr: ["top", "right"],
+                   bl: ["bottom", "left"], br: ["bottom", "right"] }[IB.drag.corner];
+    pair.forEach(k => setEdge[k]());
+  } else {
+    setEdge[IB.drag.edge] && setEdge[IB.drag.edge]();
+  }
   ibPlaceLines();
 }
 
@@ -7253,6 +7286,64 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 else updWire();
 
 
+/* ─────────────────────────────────────────────────────────────
+   真・裁走 PDF 邊界
+
+   ⚠️ 實測證明（2026-08-30）：
+   淨係改 MediaBox／CropBox 唔係「裁走」，係「收埋」。
+   內容仲喺content stream 入面，只要之後有人將版面放返大
+   （例如行「統一尺寸」），條邊就會原封不動走返出嚟。
+
+   實測：一版有紅色 SECRET_TOP，裁走上半之後再放大版面 →
+     改 MediaBox  ： ❌ 紅字走返出嚟
+     embedPage + boundingBox 剪裁： ✅ 永久唔見
+
+   所以呢度用 embedPage 加 boundingBox：張版變成一個 Form XObject，
+   佢個 /BBox 會 clip 住，之後點改版面尺寸都唔會露返出嚟。
+
+   crop 用 0–1 比例，係「畫面上」嘅上下左右（已經計埋 /Rotate）。
+   ───────────────────────────────────────────────────────────── */
+async function pdfHardCrop(srcBuffer, cropOf){
+  const src = await loadPdfLib(srcBuffer);
+  const out = await PDFLib.PDFDocument.create();
+  const pages = src.getPages();
+  let cut = 0;
+
+  for (let i = 0; i < pages.length; i++){
+    const pg = pages[i];
+    const box = pg.getMediaBox();
+    const rot = pg.getRotation().angle;
+    const c = cropOf(i) || { t: 0, b: 0, l: 0, r: 0 };
+    const any = (c.t + c.b + c.l + c.r) > 0.0005;
+
+    // 畫面上嘅上下左右，喺 PDF 座標會隨 /Rotate 轉位。
+    // 呢個對照表係由實測像素推出嚟嘅（喺 mediabox 四邊畫色條再逐個角度渲染）。
+    let L = c.l, R = c.r, T = c.t, B = c.b;
+    if (rot === 90)       { [L, R, T, B] = [c.t, c.b, c.r, c.l]; }
+    else if (rot === 180) { [L, R, T, B] = [c.r, c.l, c.b, c.t]; }
+    else if (rot === 270) { [L, R, T, B] = [c.b, c.t, c.l, c.r]; }
+
+    const x0 = box.x + box.width * L;
+    const y0 = box.y + box.height * B;
+    const w  = box.width  * (1 - L - R);
+    const h  = box.height * (1 - T - B);
+    if (!(w > 1 && h > 1)){                       // 裁到冇嘢剩就唔郁佢
+      const [cp] = await out.copyPages(src, [i]);
+      out.addPage(cp);
+      continue;
+    }
+    if (any) cut++;
+
+    const emb = await out.embedPage(pg, { left: x0, bottom: y0, right: x0 + w, top: y0 + h });
+    const swap = (rot % 180) !== 0;
+    const np = out.addPage(swap ? [h, w] : [w, h]);
+    // embedPage 唔會自動套用 /Rotate，要自己補返，否則旋轉頁會擺歪
+    if (!swap) np.drawPage(emb, { x: 0, y: 0, width: w, height: h });
+    else       np.drawPage(emb, { x: h, y: 0, width: w, height: h, rotate: PDFLib.degrees(90) });
+  }
+  return { bytes: await out.save(), cut };
+}
+
 /* =====================================================
    8c) PDF 逐版拉邊
    攤開每一版做縮圖，㩒入去就借用「圖片裁邊」嗰個編輯器拉虛線。
@@ -7364,38 +7455,10 @@ async function pvRun(){
   $("pvGo").disabled = true;
   try {
     setStatus(st, "⏳ 處理緊…", "busy");
-    const doc = await loadPdfLib(PV.buf.slice(0));
-    const pages = doc.getPages();
-    let cut = 0;
-    pages.forEach((page, i) => {
-      const rec = PV.pages[i];
-      if (!rec || !pvCropped(rec.crop)) return;
-      cut++;
-      const c = rec.crop;
-      const box = page.getMediaBox();          // 由 mediabox 出發，唔係假設由 0,0 開始
-      const rot = page.getRotation().angle;
-      // 畫面上嘅上下左右，喺 PDF 座標入面會隨住 /Rotate 轉位
-      let L = c.l, R = c.r, T = c.t, B = c.b;
-      // ⚠️ 呢個對照表係由實測像素推出嚟，唔係靠估。
-      // 做法：喺 mediabox 四邊畫四條唔同色嘅邊條，逐個 rot 渲染出嚟，
-      // 睇下畫面嘅上下左右分別對應 mediabox 邊一邊（見交接檔）。
-      // 我第一次寫嗰陣 90 同 270 啱啱好對調咗，渲染出嚟即刻見到。
-      if (rot === 90)       { [L, R, T, B] = [c.t, c.b, c.r, c.l]; }
-      else if (rot === 180) { [L, R, T, B] = [c.r, c.l, c.b, c.t]; }
-      else if (rot === 270) { [L, R, T, B] = [c.b, c.t, c.l, c.r]; }
-      const x = box.x + box.width * L;
-      const y = box.y + box.height * B;        // PDF 嘅 y 由下向上
-      const w = box.width  * (1 - L - R);
-      const h = box.height * (1 - T - B);
-      if (w > 1 && h > 1){
-        page.setMediaBox(x, y, w, h);
-        page.setCropBox(x, y, w, h);
-      }
-    });
-    const bytes = await doc.save();
+    const { bytes, cut } = await pdfHardCrop(PV.buf.slice(0), i => PV.pages[i] && PV.pages[i].crop);
     downloadBlob(new Blob([bytes], { type: "application/pdf" }),
-                 stripExt(PV.name) + "_逐版裁邊.pdf");
-    setStatus(st, `✅ done，${cut} 版有裁過，其餘原封不動。`, "ok");
+                 stripExt(PV.name) + "_裁邊.pdf");
+    setStatus(st, `✅ done，${cut} 版真係裁走咗（唔會還原）。`, "ok");
   } catch (err){
     console.error(err);
     setStatus(st, "❌ 出錯：" + (err.message || err), "err");
