@@ -404,7 +404,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-split" class="panel">
   <div class="box">
     <h2>快速拆分</h2>
-    <p class="desc">將一個 PDF 拆做幾個檔案。可以自訂範圍，亦可以一鍵每頁一個檔案（多個輸出會自動打包做 ZIP）。</p>
+    <p class="desc">將一個 PDF 拆做幾個檔案。可以自訂範圍，亦可以一鍵每頁一個檔案（多個輸出會自動打包做 ZIP）。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="spDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="spFileInput" accept="application/pdf">
     <ul class="file-list" id="spFileList"></ul>
@@ -429,6 +429,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <!-- ============ 3. 魔法合併器（原有功能） ============ -->
 <section id="panel-magic" class="panel">
   <div class="box">
+    <p class="desc">由文件 A 抽頁插入文件 B。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <label class="field-label">1. 上載 文件 A（要被抽取嘅文件）</label>
     <div class="dropzone" id="mgDropA"><strong>拖放 文件 A</strong> 或者㩒一下揀檔案</div>
     <input type="file" id="fileA" accept="application/pdf">
@@ -464,7 +465,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-textedit" class="panel">
   <div class="box">
     <h2>文字編輯器</h2>
-    <p class="desc">喺 PDF 上面加新文字方塊、改內容、字型大細、顏色，仲可以拖嚟拖去定位。要「修改」原本嘅字？勾選<b>白底覆蓋</b>，用白色底遮住舊字再印新字上去就得。注意：PDF 格式本身冇真正嘅「可編輯文字流」，所以呢個係業界通用嘅「覆蓋 + 印新字」做法。</p>
+    <p class="desc">喺 PDF 上面加新文字方塊、改內容、字型大細、顏色，仲可以拖嚟拖去定位。要「修改」原本嘅字？勾選<b>白底覆蓋</b>，用白色底遮住舊字再印新字上去就得。注意：PDF 格式本身冇真正嘅「可編輯文字流」，所以呢個係業界通用嘅「覆蓋 + 印新字」做法。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="teDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="teFileInput" accept="application/pdf">
     <ul class="file-list" id="teFileList"></ul>
@@ -531,7 +532,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-image" class="panel">
   <div class="box">
     <h2>圖片 ⇄ PDF</h2>
-    <p class="desc">將圖片（JPG / JPEG / PNG，亦支援 GIF / BMP / WEBP 等）組合成一個 PDF；或者將 PDF 每一頁匯出做圖片。</p>
+    <p class="desc">將圖片（JPG / JPEG / PNG，亦支援 GIF / BMP / WEBP 等）組合成一個 PDF；或者將 PDF 每一頁匯出做圖片。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="seg" id="imgSeg">
       <button class="active" data-view="i2p">🖼️ 圖片 → PDF</button>
       <button data-view="p2i">📑 PDF → 圖片</button>
@@ -576,7 +577,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-word" class="panel">
   <div class="box">
     <h2>PDF ⇄ Word（DOCX）</h2>
-    <p class="desc">將 PDF 匯出做可編輯嘅 DOCX，或者將 DOCX 轉做 PDF。</p>
+    <p class="desc">將 PDF 匯出做可編輯嘅 DOCX，或者將 DOCX 轉做 PDF。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="seg" id="wordSeg">
       <button class="active" data-view="p2d">📄 PDF → Word</button>
       <button data-view="d2p">📘 Word → PDF</button>
@@ -638,7 +639,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="subview active" id="trPdfView">
   <div class="box">
     <h2>PDF 裁邊（Trim Margins）</h2>
-    <p class="desc">將 PDF 嘅上、下、左、右邊界切走，令版面縮細。可以揀套用至<b>所有頁面</b>，或者只套用至<b>指定頁面</b>。裁切只會收細頁面邊界，唔會影響入面嘅文字圖片內容本身。</p>
+    <p class="desc">將 PDF 嘅上、下、左、右邊界切走，令版面縮細。可以揀套用至<b>所有頁面</b>，或者只套用至<b>指定頁面</b>。裁切只會收細頁面邊界，唔會影響入面嘅文字圖片內容本身。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="trDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="trFileInput" accept="application/pdf">
     <ul class="file-list" id="trFileList"></ul>
@@ -735,7 +736,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="subview" id="trVisView">
   <div class="box">
     <h2>PDF 逐版拉邊</h2>
-    <p class="desc">攤開每一版，㩒入去就可以睇住張圖拉虛線裁邊，每版可以裁到唔同。裁邊只係收細版面邊界，唔會郁到入面啲字同圖。</p>
+    <p class="desc">攤開每一版，㩒入去就可以睇住張圖拉虛線裁邊，每版可以裁到唔同。裁邊只係收細版面邊界，唔會郁到入面啲字同圖。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="pvDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="pvFile" accept="application/pdf">
     <div class="status" id="pvStatus"></div>
@@ -1276,7 +1277,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
   <div class="subview" id="uzPdfView">
   <div class="box">
     <h2>PDF：每一版統一尺寸</h2>
-    <p class="desc">同一個 PDF 入面各版尺寸唔一，可以全部統一。文字同線條係向量，放大唔會蒙。</p>
+    <p class="desc">同一個 PDF 入面各版尺寸唔一，可以全部統一。文字同線條係向量，放大唔會蒙。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="updDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="updFile" accept="application/pdf">
     <div class="status" id="updStatus"></div>
@@ -1340,7 +1341,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 16px 30px;color:var(--ink-soft);
 <section id="panel-reader" class="panel">
   <div class="box">
     <h2>睇書模式</h2>
-    <p class="desc">全螢幕左右孖頁睇書，同埋將孖頁合成一張圖匯出。全部喺你部機做，份檔案唔會離開電腦。</p>
+    <p class="desc">全螢幕左右孖頁睇書，同埋將孖頁合成一張圖匯出。全部喺你部機做，份檔案唔會離開電腦。有 restricted / protected 嘅 PDF 都照樣處理到。</p>
     <div class="dropzone" id="rdDrop" tabindex="0"><strong>拖放一個 PDF 到呢度</strong><br>或者㩒一下揀檔案</div>
     <input type="file" id="rdFileInput" accept="application/pdf">
     <ul class="file-list" id="rdFileList"></ul>
@@ -1669,21 +1670,95 @@ async function loadPdfLib(arrayBuffer){
    再砌返一個全新、乾淨、冇加密嘅 PDF。代價係文字會變成圖片。
    ───────────────────────────────────────────────────────────── */
 function pdfIsProtected(arrayBuffer){
-  // 直接喺原始 bytes 度搵 /Encrypt，最可靠，唔使靠 pdf-lib 解析成功
+  /* ⚠️ 2026-09-03 修正：原本淨係掃頭 4KB 同尾 4KB。
+     呢個窗口對好多真實 PDF 都唔夠：
+       • PDF 1.5+ 用 cross-reference stream，trailer 個 dict（連 /Encrypt）
+         擺喺條 xref stream 前面，後面跟住幾十 KB 二進位資料 → 落咗尾 4KB 之外
+       • 有 incremental update 嘅檔案，/Encrypt 可能喺舊 trailer 度
+       • linearized PDF 尾部係 hint stream
+     掃唔到 → 當佢冇加密 → 直接餵俾 pdf-lib → 就係你見到嗰個
+     `Expected instance of e, but got instance of undefined`。
+     而家改成掃成個 buffer。O(n) 逐 byte 比對，20MB 大概十幾毫秒，慳唔到嗰陣唔好慳。 */
   try {
     const b = new Uint8Array(arrayBuffer);
-    const tail = b.subarray(Math.max(0, b.length - 4096));
     const needle = [0x2F, 0x45, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74]; // "/Encrypt"
-    const hunt = (arr) => {
-      outer: for (let i = 0; i + needle.length <= arr.length; i++){
-        for (let j = 0; j < needle.length; j++) if (arr[i + j] !== needle[j]) continue outer;
-        return true;
-      }
-      return false;
-    };
-    return hunt(tail) || hunt(b.subarray(0, Math.min(b.length, 4096)));
+    const first = needle[0], last = needle[7], n = b.length;
+    for (let i = 0; i + 8 <= n; i++){
+      if (b[i] !== first || b[i + 7] !== last) continue;
+      let hit = true;
+      for (let j = 1; j < 7; j++) if (b[i + j] !== needle[j]) { hit = false; break; }
+      if (hit) return true;
+    }
+    return false;
   } catch(e){ return false; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   真・體檢：pdf-lib 到底搞唔搞得掂呢個 buffer？
+
+   「讀得到」同「出得到」係兩件事。pdf-lib `load()` 只係解析交叉索引
+   同對象骨架，佢唔會掂 page tree 入面啲 resource／content stream。
+   所以會出現呢個好誤導嘅情況：
+     • 頁面工作區 → load() 之後淨係讀 isEncrypted（唔行 page tree）
+                    → 載入報「成功」，直到你㩒輸出、行到 copyPages 先爆
+     • 其他 tab   → load() 之後即刻 getPageCount()（要行 page tree）
+                    → 第一關就爆
+   同一個 bug，兩個唔同時間爆出嚟，所以覺得工作區「勁啲」。其實冇。
+
+   要擔保匯出成功，唯一方法就係真係試做一次。呢度抽頭、中、尾三版
+   落一個新文件再 save()，係最平嘅「代表性排練」。 */
+async function pdfLibHealthCheck(arrayBuffer){
+  /* ⚠️ 唔可以淨係信 pdf-lib 個 `isEncrypted`。
+     實測（2026-09-03，qpdf --linearize --encrypt 整出嚟嘅檔案）：
+       檔案真係加密 → doc.isEncrypted 竟然報 false
+     原因：linearized PDF 頭尾各有一份 xref，pdf-lib 揀咗前面嗰份，
+     而前面嗰份 trailer 冇 /Encrypt。所以呢個 flag 會講大話。
+     要靠三重確認：原始 bytes 有冇 /Encrypt、pdf.js 點睇、以及真係試抄一版。 */
+
+  // (1) 加密偵測 —— 加密檔嘅 trailer 一定有 /Encrypt，而且一定係明文
+  if (pdfIsProtected(arrayBuffer)){
+    // 再問 pdf.js 確認一次，因為「/Encrypt」呢串字理論上可以喺內文出現。
+    // pdf.js 識解密，佢一開檔就知有邊隻 security handler。
+    let confirmed = true;
+    try {
+      const probeDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), ...PDFJS_SAFE }).promise;
+      const info = (await probeDoc.getMetadata()).info || {};
+      if ("EncryptFilterName" in info) confirmed = !!info.EncryptFilterName;
+      probeDoc.destroy();
+    } catch (e){
+      // 要開啟密碼（PasswordException）都係加密，維持 confirmed = true
+    }
+    if (confirmed) return { ok: false, why: "文件有加密（權限限制／開啟密碼）" };
+  }
+
+  // (2) 骨架解唔解到
+  let doc;
+  try {
+    doc = await PDFLib.PDFDocument.load(arrayBuffer.slice(0), { ignoreEncryption: true });
+  } catch (err){
+    return { ok: false, why: "pdf-lib 解唔到文件骨架：" + (err.message || err) };
+  }
+  if (doc.isEncrypted) return { ok: false, why: "文件有加密（權限限制／開啟密碼）" };
+
+  // (3) 真・排練：抄頭、中、尾三版落一個新文件再 save()。
+  //     呢步先係「匯出得唔得」嘅答案，load() 成功唔代表得。
+  try {
+    const total = doc.getPageCount();
+    if (!total) return { ok: false, why: "揾唔到任何一版" };
+    const probe = [...new Set([0, total >> 1, total - 1])];
+    const dry = await PDFLib.PDFDocument.create();
+    const copied = await dry.copyPages(doc, probe);
+    copied.forEach(p => dry.addPage(p));
+    await dry.save();
+  } catch (err){
+    return { ok: false, why: "試抄頁面嗰陣失敗：" + (err.message || err) };
+  }
+  return { ok: true };
+}
+
+/* 記住邊個 buffer 係我哋解過鎖嘅，純粹為咗喺檔案清單度標返個記號。 */
+const UNLOCKED_BUFFERS = new WeakSet();
+const pdfWasUnlocked = buf => { try { return UNLOCKED_BUFFERS.has(buf); } catch(e){ return false; } };
 
 /* 用 pdf.js 逐頁畫返出嚟，砌一個冇加密嘅新 PDF。
    password 可以係 null（大部分「restricted」PDF 唔使開啟密碼）。 */
@@ -1725,22 +1800,38 @@ async function unlockPdfByRaster(arrayBuffer, opts){
 
 /* 載入之前叫一次：有加密就問准，然後解鎖。
    返回一個一定用得嘅 ArrayBuffer。 */
-async function prepPdfBuffer(arrayBuffer, fileName, statusEl){
-  if (!pdfIsProtected(arrayBuffer)) return arrayBuffer;
+async function prepPdfBuffer(arrayBuffer, fileName, statusEl, extraNote){
+  // 快篩：成個 buffer 都搵唔到 /Encrypt 就一定唔係加密檔
+  // （trailer／xref stream 個 dict 一定係明文，加密檔冇可能匿埋）。
+  // 但仲要行體檢，因為爛檔案一樣會令 pdf-lib 爆同一個錯。
+  if (statusEl) setStatus(statusEl, "⏳ 檢查緊個 PDF…", "busy");
+  const health = await pdfLibHealthCheck(arrayBuffer);
+  if (health.ok) return arrayBuffer;
+
+  const encrypted = pdfIsProtected(arrayBuffer);
   const ok = confirm(
-    `「${fileName}」有加密保護（受保護／受限制 PDF）。\n\n` +
-    `負責編輯嘅程式庫解唔到密，夾硬做會匯出空白頁，或者直接出錯。\n\n` +
-    `要唔要而家解鎖？做法係將每一頁畫成圖片，砌返一個乾淨嘅 PDF。\n\n` +
+    `「${fileName}」` + (encrypted
+      ? `有加密保護（受保護／受限制 PDF）。`
+      : `個結構負責編輯嘅程式庫處理唔到。`) + `\n\n` +
+    `原因：${health.why}\n\n` +
+    `夾硬做會匯出空白頁，或者直接出錯。\n\n` +
+    `要唔要而家救返佢？做法係將每一頁畫成圖片，砌返一個乾淨嘅 PDF。\n\n` +
     `• 版面、圖片完全一樣\n` +
     `• 但文字會變成圖片，揀唔到、搵唔到\n` +
-    `• 想攞返文字，解鎖之後入「🔍 掃描件認字」行一次就得\n\n` +
-    `撳「確定」解鎖，撳「取消」就唔處理呢個檔案。`
+    `• 想攞返文字，解鎖之後入「🔍 掃描件認字」行一次就得\n` +
+    (extraNote ? `\n⚠️ ${extraNote}\n` : "") +
+    `\n撳「確定」解鎖，撳「取消」就唔處理呢個檔案。`
   );
-  if (!ok) throw new Error(`「${fileName}」有加密保護，已經略過。`);
-  return await unlockPdfByRaster(arrayBuffer, {
+  if (!ok) throw new Error(`「${fileName}」${encrypted ? "有加密保護" : "結構處理唔到"}，已經略過。`);
+  const out = await unlockPdfByRaster(arrayBuffer, {
     dpi: 150,
     onProg: msg => { if (statusEl) setStatus(statusEl, "⏳ " + msg, "busy"); }
   });
+  // 解完鎖再驗一次，冇理由過唔到，過唔到就即刻講，唔好留返匯出先爆。
+  const after = await pdfLibHealthCheck(out);
+  if (!after.ok) throw new Error(`解鎖之後仍然處理唔到：${after.why}`);
+  UNLOCKED_BUFFERS.add(out);
+  return out;
 }
 
 /* 解析頁數字串，例如 "1,3,5-8" → [1,3,5,6,7,8]（1-based，保留輸入順序） */
@@ -1834,7 +1925,7 @@ async function addWorkspaceFiles(files){
 
       // 確認 pdf-lib 讀得到（restricted PDF 用 ignoreEncryption 照讀）
       const libDoc = await loadPdfLib(buffer);
-      const encrypted = libDoc.isEncrypted;
+      const encrypted = pdfWasUnlocked(buffer) || libDoc.isEncrypted;
 
       const srcId = WS.nextSrcId++;
       WS.sources.set(srcId, { name: file.name, buffer, encrypted });
@@ -1860,7 +1951,7 @@ async function addWorkspaceFiles(files){
       pdfjsDoc.destroy();
       renderFileList();
       renderGrid();
-      setStatus(st, `✅ 已加入「${file.name}」（${total} 頁）${encrypted ? "，已自動解除限制" : ""}`, "ok");
+      setStatus(st, `✅ 已加入「${file.name}」（${total} 頁）${encrypted ? "，已自動解鎖（文字已變成圖片）" : ""}`, "ok");
     } catch (err){
       console.error(err);
       setStatus(st, `❌ 讀取「${file.name}」失敗：${err.message || err}`, "err");
@@ -2001,33 +2092,75 @@ $("btnClear").onclick = () => {
   setStatus($("wsExportStatus"), "");
 };
 
+/* 由 WS.pages 砌返個結果 PDF。抽出嚟做獨立 function，
+   係為咗萬一爆咗，解鎖完可以原封不動再叫多次。 */
+async function wsAssemble(){
+  const out = await PDFLib.PDFDocument.create();
+  const docCache = new Map();
+  for (const pg of WS.pages){
+    if (!docCache.has(pg.srcId)){
+      docCache.set(pg.srcId, await loadPdfLib(WS.sources.get(pg.srcId).buffer));
+    }
+    const src = docCache.get(pg.srcId);
+    const [copied] = await out.copyPages(src, [pg.pageIndex]);
+    if (pg.extraRot){
+      const base = copied.getRotation().angle || 0;
+      copied.setRotation(PDFLib.degrees((base + pg.extraRot) % 360));
+    }
+    out.addPage(copied);
+  }
+  return await out.save();
+}
+
 $("btnExport").onclick = async () => {
   const st = $("wsExportStatus");
   if (!WS.pages.length){ setStatus(st, "工作區未有頁面。", "err"); return; }
   setStatus(st, "⏳ 組合緊最終 PDF…", "busy");
+
+  let bytes;
   try {
-    const out = await PDFLib.PDFDocument.create();
-    const docCache = new Map();
-    for (const pg of WS.pages){
-      if (!docCache.has(pg.srcId)){
-        docCache.set(pg.srcId, await loadPdfLib(WS.sources.get(pg.srcId).buffer));
+    bytes = await wsAssemble();
+  } catch (err){
+    /* 最後防線：載入嗰陣體檢過關，但夾到某一版先爆（例如淨係嗰版嘅
+       resource 有問題）。呢度唔好淨係報錯就算 —— 用家已經排完成個
+       工作區，叫佢由頭嚟過太傷。將出事嗰啲來源逐個 raster 過再試多次。 */
+    console.error(err);
+    const ok = confirm(
+      `組合嗰陣出錯：${err.message || err}\n\n` +
+      `有來源檔案 pdf-lib 處理唔到。要唔要將佢哋逐頁畫成圖片再試多次？\n\n` +
+      `• 頁面次序、旋轉、刪咗嘅版全部保留\n` +
+      `• 但受影響嗰啲檔案，文字會變成圖片\n\n` +
+      `撳「取消」就當今次輸出失敗。`
+    );
+    if (!ok){ setStatus(st, "❌ 輸出失敗：" + (err.message || err), "err"); return; }
+    try {
+      for (const [srcId, src] of WS.sources){
+        if (!WS.pages.some(p => p.srcId === srcId)) continue;   // 呢個來源已經冇版喺工作區
+        const health = await pdfLibHealthCheck(src.buffer);
+        if (health.ok) continue;
+        src.buffer = await unlockPdfByRaster(src.buffer, {
+          dpi: 150,
+          onProg: msg => setStatus(st, `⏳ 「${src.name}」${msg}`, "busy")
+        });
+        src.encrypted = true;
       }
-      const src = docCache.get(pg.srcId);
-      const [copied] = await out.copyPages(src, [pg.pageIndex]);
-      if (pg.extraRot){
-        const base = copied.getRotation().angle || 0;
-        copied.setRotation(PDFLib.degrees((base + pg.extraRot) % 360));
-      }
-      out.addPage(copied);
+      setStatus(st, "⏳ 再組合多次…", "busy");
+      bytes = await wsAssemble();
+    } catch (err2){
+      console.error(err2);
+      setStatus(st, "❌ 解鎖之後仍然輸出唔到：" + (err2.message || err2), "err");
+      return;
     }
-    const bytes = await out.save();
+  }
+
+  try {
     let name = ($("wsOutName").value || "Result.pdf").trim();
     if (!/\.pdf$/i.test(name)) name += ".pdf";
     downloadBlob(new Blob([bytes], { type: "application/pdf" }), name);
     setStatus(st, `✅ 搞掂！已經下載咗 ${name}（${WS.pages.length} 頁）`, "ok");
   } catch (err){
     console.error(err);
-    setStatus(st, "❌ 輸出失敗：" + (err.message || err), "err");
+    setStatus(st, "❌ 下載失敗：" + (err.message || err), "err");
   }
 };
 
@@ -2047,7 +2180,7 @@ wireDropzone($("spDrop"), $("spFileInput"), async files => {
     SP.pageCount = doc.getPageCount();
     $("spFileList").innerHTML =
       `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
-      (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+      (pdfWasUnlocked(SP.buffer) ? `<span class="lock-tag">🔓 已解鎖</span>` : "") +
       `<span class="pages">共 ${SP.pageCount} 頁</span></li>`;
     setStatus(st, `✅ 已載入，共 ${SP.pageCount} 頁。`, "ok");
   } catch (err){
@@ -2128,12 +2261,12 @@ function wireMagicFile(dropId, inputId, listId, key){
   wireDropzone($(dropId), $(inputId), async files => {
     const file = files[0];
     try {
-      const buffer = await file.arrayBuffer();
+      const buffer = await prepPdfBuffer(await file.arrayBuffer(), file.name, $("mgStatus"));
       const doc = await loadPdfLib(buffer);
       MG[key] = { name: file.name, buffer, pageCount: doc.getPageCount(), encrypted: doc.isEncrypted };
       $(listId).innerHTML =
         `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
-        (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+        (pdfWasUnlocked(buffer) ? `<span class="lock-tag">🔓 已解鎖</span>` : "") +
         `<span class="pages">共 ${doc.getPageCount()} 頁</span></li>`;
       setStatus($("mgStatus"), "");
     } catch (err){
@@ -2316,7 +2449,7 @@ wireDropzone($("teDrop"), $("teFileInput"), async files => {
   const file = files[0];
   setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
   try {
-    TE.buffer = await file.arrayBuffer();
+    TE.buffer = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
     TE.pdfjsDoc = await pdfjsLib.getDocument({ data: TE.buffer.slice(0), ...PDFJS_SAFE }).promise;
     TE.pdfLibDoc = await loadPdfLib(TE.buffer);
     const n = TE.pdfjsDoc.numPages;
@@ -2328,7 +2461,7 @@ wireDropzone($("teDrop"), $("teFileInput"), async files => {
     }
     $("teFileList").innerHTML =
       `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
-      (TE.pdfLibDoc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+      (pdfWasUnlocked(TE.buffer) ? `<span class="lock-tag">🔓 已解鎖</span>` : "") +
       `<span class="pages">共 ${n} 頁</span></li>`;
     $("teToolbar").hidden = false;
     $("teEmpty").style.display = "none";
@@ -3194,7 +3327,7 @@ wireDropzoneAny($("p2iDrop"), $("p2iFile"), async files => {
   const st = $("p2iStatus"); const f = files[0];
   setStatus(st, `⏳ 讀緊「${f.name}」…`, "busy");
   try {
-    P2I.buffer = await f.arrayBuffer(); P2I.file = f;
+    P2I.buffer = await prepPdfBuffer(await f.arrayBuffer(), f.name, st); P2I.file = f;
     const doc = await loadPdfLib(P2I.buffer);
     $("p2iList").innerHTML = `<li><span class="name">📄 ${escapeHtml(f.name)}</span><span class="pages">共 ${doc.getPageCount()} 頁</span></li>`;
     setStatus(st, "✅ 已載入。", "ok");
@@ -3225,7 +3358,7 @@ const P2D = { file: null, buffer: null };
 wireDropzoneAny($("p2dDrop"), $("p2dFile"), async files => {
   const st = $("p2dStatus"); const f = files[0];
   try {
-    P2D.buffer = await f.arrayBuffer(); P2D.file = f;
+    P2D.buffer = await prepPdfBuffer(await f.arrayBuffer(), f.name, st); P2D.file = f;
     const doc = await loadPdfLib(P2D.buffer);
     $("p2dList").innerHTML = `<li><span class="name">📄 ${escapeHtml(f.name)}</span><span class="pages">共 ${doc.getPageCount()} 頁</span></li>`;
     setStatus(st, "✅ 已載入。", "ok");
@@ -3319,7 +3452,7 @@ wireDropzone($("trDrop"), $("trFileInput"), async files => {
   const file = files[0];
   setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
   try {
-    TR.buffer = await file.arrayBuffer();
+    TR.buffer = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
     const doc = await loadPdfLib(TR.buffer);
     TR.file = file;
     TR.pageCount = doc.getPageCount();
@@ -3328,7 +3461,7 @@ wireDropzone($("trDrop"), $("trFileInput"), async files => {
     TR.firstBox = { width: mb.width, height: mb.height };
     $("trFileList").innerHTML =
       `<li><span class="name">📄 ${escapeHtml(file.name)}</span>` +
-      (doc.isEncrypted ? `<span class="lock-tag">🔓 受保護檔案</span>` : "") +
+      (pdfWasUnlocked(TR.buffer) ? `<span class="lock-tag">🔓 已解鎖</span>` : "") +
       `<span class="pages">共 ${TR.pageCount} 頁</span></li>`;
     $("trSettings").hidden = false;
     // 填充預覽頁面 dropdown
@@ -3976,7 +4109,7 @@ wireDropzoneAny($("ocrDrop"), $("ocrFile"), async files => {
   const file = files[0];
   try {
     setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
-    OCR.buf = await file.arrayBuffer();
+    OCR.buf = await prepPdfBuffer(await file.arrayBuffer(), file.name, st);
     OCR.name = file.name;
     OCR.pages = [];
     if (OCR.pdfjsDoc){ try { OCR.pdfjsDoc.destroy(); } catch(e){} }
@@ -4930,7 +5063,9 @@ wireDropzone($("s2tDrop"), $("s2tFileInput"), async files => {
   try {
     await s2tEnsureLibs(st);
     setStatus(st, `⏳ 讀緊「${file.name}」…`, "busy");
-    S2.buf = await file.arrayBuffer();
+    S2.buf = await prepPdfBuffer(await file.arrayBuffer(), file.name, st,
+      "簡轉繁係就地改寫文字層。解鎖之後成版變咗圖片，冇文字層可以改，" +
+      "所以要先入「🔍 掃描件認字」出一個可搜尋 PDF，再返嚟做簡轉繁。");
     S2.name = file.name;
     S2.outBytes = null;
     S2.pdfjsDoc = await pdfjsLib.getDocument({ data: S2.buf.slice(0), ...PDFJS_SAFE }).promise;
